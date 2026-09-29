@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "gemini-web-tool-calling"
 version = "0.1.0"
@@ -9,4 +13,8 @@ dependencies = [
     "litellm>=1.50",
     "google-cloud-aiplatform>=1.40.0",
     "requests>=2.31",
+    "python-dotenv>=1.0.0",
 ]
+
+[tool.setuptools]
+py-modules = ["app", "tools"]
