@@ -315,9 +315,15 @@
                     if (result.headline) {
                         body.innerHTML += '<div class="field-value"><strong>' + escapeHtml(result.headline) + "</strong></div>";
                     }
-                    if (result.dishes_to_ask_about && result.dishes_to_ask_about.length) {
-                        let html = '<div class="field-label">Dishes worth asking about</div><ul>';
-                        for (const d of result.dishes_to_ask_about) html += "<li>" + escapeHtml(d) + "</li>";
+                    if (result.candidate_dishes && result.candidate_dishes.length) {
+                        let html = '<div class="field-label">Worth asking about (' + escapeHtml(result.allergen_queried || "allergen") + ' not listed)</div><ul>';
+                        for (const d of result.candidate_dishes) html += "<li>" + escapeHtml(d) + "</li>";
+                        html += "</ul>";
+                        body.innerHTML += html;
+                    }
+                    if (result.flagged_dishes && result.flagged_dishes.length) {
+                        let html = '<div class="field-label">Contains ' + escapeHtml(result.allergen_queried || "allergen") + '</div><ul>';
+                        for (const d of result.flagged_dishes) html += "<li>" + escapeHtml(d) + "</li>";
                         html += "</ul>";
                         body.innerHTML += html;
                     }

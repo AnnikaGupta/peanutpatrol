@@ -83,6 +83,12 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str) 
     # hidden ingredients, and recipe changes are all invisible to a menu
     # search). "ask_restaurant" covers both "nothing found" and "found but
     # inconclusive" -- the honest answer in both cases is the same action.
+    #
+    # For whole-menu questions ("what can I eat here"), a list of only the
+    # dishes that DO contain the allergen isn't actually an answer to what
+    # was asked -- so this also asks for candidate_dishes: real menu items
+    # that don't list the allergen, as a starting point to ask staff about,
+    # framed as "worth asking about" rather than "safe".
     prompt = (
         f"Someone with a {allergen} allergy is asking about '{dish_name}' at "
         f"'{restaurant_name}'. Search for this specific restaurant's posted menu, "
@@ -92,16 +98,22 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str) 
         f'- "not_found_in_ingredients": you found the dish/menu but {allergen} is not '
         f"listed (this does NOT mean the dish is safe -- cross-contact is still possible)\n"
         f'- "ask_restaurant": you could not find restaurant-specific information at all\n\n'
-        f"Write a headline that LEADS with the answer in under 15 words, restaurant-staff-"
-        f"friendly language (never say 'safe' -- say things like 'contains {allergen}', "
-        f"'{allergen} not listed', or 'ask staff to confirm'). If the question was about "
-        f"the whole menu rather than one dish, also list up to 4 specific dish names worth "
-        f"asking about by name.\n\n"
+        f"If the question is about the whole menu rather than one named dish, find the "
+        f"actual menu and split real dish names into two lists:\n"
+        f"- flagged_dishes: dishes that list {allergen} as an ingredient (avoid or double-check)\n"
+        f"- candidate_dishes: OTHER dishes from that SAME menu that do NOT list {allergen} -- "
+        f"a starting point worth asking about, not a safety guarantee. Always populate this "
+        f"list with real items if the menu has any that don't list the allergen; don't leave "
+        f"it empty just because some other dishes do contain it.\n\n"
+        f"Write a headline in under 20 words that leads with the most USEFUL answer -- if "
+        f"candidate dishes exist, mention that (e.g. 'X appetizers/entrees don't list {allergen}'), "
+        f"not just that other dishes contain it. Never say 'safe' -- say 'doesn't list {allergen}' "
+        f"or 'worth asking about'.\n\n"
         f"Respond with ONLY valid JSON, no markdown fences, in this exact shape:\n"
         f'{{"status": "likely_contains|not_found_in_ingredients|ask_restaurant", '
         f'"headline": "<short lead answer>", "explanation": "<fuller context, under 100 words>", '
-        f'"dishes_to_ask_about": ["<dish 1>", "<dish 2>"]}}\n'
-        f'(dishes_to_ask_about may be an empty list if a single dish was already named)'
+        f'"flagged_dishes": ["<dish 1>"], "candidate_dishes": ["<dish 1>", "<dish 2>"]}}\n'
+        f"(both lists may be empty for a single-named-dish question)"
     )
 
     try:
@@ -120,7 +132,8 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str) 
             "status": parsed.get("status", "ask_restaurant"),
             "headline": parsed.get("headline", ""),
             "explanation": parsed.get("explanation", ""),
-            "dishes_to_ask_about": parsed.get("dishes_to_ask_about", []),
+            "flagged_dishes": parsed.get("flagged_dishes", []),
+            "candidate_dishes": parsed.get("candidate_dishes", []),
             "source": "gemini_web_search",
             "warning": "⚠️ AI-summarized web search result, not verified restaurant data. Always confirm with staff before ordering."
         })
@@ -307,7 +320,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_restaurant_menu",
-            "description": "Search for a dish at a restaurant and check if it contains specific allergens. Helps you find safe food options when dining out.",
+            "description": "Search for a dish at a restaurant and check if it contains a specific allergen. Pass dish_name='menu' for a whole-menu question (e.g. 'what can I eat here') -- the tool will return both dishes that contain the allergen AND candidate dishes from the same menu that don't list it, worth asking staff about.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -317,7 +330,7 @@ TOOLS = [
                     },
                     "dish_name": {
                         "type": "string",
-                        "description": "Name of the dish to check, e.g., 'chicken bowl', 'salad', 'pad thai'"
+                        "description": "Name of the dish to check, e.g., 'chicken bowl', 'salad', 'pad thai'. Use 'menu' for a whole-menu question rather than a single dish."
                     },
                     "allergen": {
                         "type": "string",
