@@ -13,3 +13,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Professor's standalone GCP setup test script -- not part of this project
+gemini-hello-world/

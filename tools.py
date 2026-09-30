@@ -3,10 +3,13 @@
 import json
 import os
 import requests
+import litellm
 from dotenv import load_dotenv
 
 load_dotenv()
 SPOONACULAR_API_KEY = os.getenv("SPOONACULAR_API_KEY")
+# GOOGLE_CLOUD_PROJECT is read automatically by google-auth / litellm's Vertex
+# integration from the environment -- no need to pass it explicitly per call.
 
 SPOONACULAR_BASE = "https://api.spoonacular.com"
 ALLERGENS = [
@@ -17,87 +20,78 @@ ALLERGENS = [
 # ============================================================================
 # Tool 1: search_restaurant_menu
 # ============================================================================
+#
+# Spoonacular's recipe database was tried first, but it's a home-cook recipe
+# index, not a restaurant menu database: searching "Chipotle chicken bowl"
+# matched an unrelated home recipe called "...Chipotle Dressing" (the pepper,
+# not the chain), and would have reported its ingredients as if they were the
+# real restaurant's. For a safety-critical allergen tool, a confidently wrong
+# answer is worse than an honest "I don't know" -- so this instead uses a
+# Gemini call with Google Search grounding (same Vertex credentials as the
+# main agent, no extra API key) to find the restaurant's actual posted
+# allergen info when it exists online, and otherwise gives general dish-level
+# knowledge with an explicit "not restaurant-verified" caveat. This also
+# covers small independent restaurants (e.g. a specific NYC spot) that would
+# never appear in any recipe or chain database.
 
 def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str) -> str:
-    """Search for a dish at a restaurant and check allergen info.
+    """Check whether a dish at a specific restaurant likely contains an allergen.
 
     Args:
-        restaurant_name: e.g., "Chipotle", "Panera", "Thai Palace"
-        dish_name: e.g., "chicken bowl", "salad", "pad thai"
+        restaurant_name: e.g., "Chipotle", "Panera", "Koo Thai"
+        dish_name: e.g., "chicken bowl", "salad", "drunken noodles"
         allergen: e.g., "peanuts", "dairy", "gluten"
 
-    Returns: JSON with dish info and allergen assessment
+    Returns: JSON with findings and an explicit confidence/source label
     """
+    if not os.getenv("GOOGLE_CLOUD_PROJECT"):
+        return json.dumps({
+            "error": "GOOGLE_CLOUD_PROJECT not set in .env",
+            "suggestion": "Contact the restaurant directly about allergen info"
+        })
+
+    prompt = (
+        f"Someone with a {allergen} allergy wants to know if '{dish_name}' at "
+        f"'{restaurant_name}' is safe to eat. Search for this specific restaurant's "
+        f"posted menu, ingredient list, or allergen guide if it exists online. "
+        f"If you find restaurant-specific information, say so clearly and summarize it. "
+        f"If you cannot find anything specific to this restaurant, say that explicitly, "
+        f"then give general knowledge about whether {allergen} is typically found in this "
+        f"type of dish. Always end by recommending the user confirm with restaurant staff "
+        f"directly, since recipes and cross-contamination risk vary by location. "
+        f"Keep the answer under 150 words."
+    )
+
     try:
-        # Search recipes matching the restaurant + dish
-        search_url = f"{SPOONACULAR_BASE}/recipes/search"
-        params = {
-            "query": f"{restaurant_name} {dish_name}",
-            "number": 3,
-            "apiKey": SPOONACULAR_API_KEY,
-        }
-
-        response = requests.get(search_url, params=params, timeout=10)
-        if response.status_code != 200:
-            return json.dumps({
-                "error": f"Restaurant API failed (status {response.status_code})",
-                "suggestion": "Try asking the restaurant directly about allergens"
-            })
-
-        results = response.json().get("results", [])
-        if not results:
+        response = litellm.completion(
+            model="vertex_ai/gemini-3.5-flash-lite",
+            vertex_location="global",
+            messages=[{"role": "user", "content": prompt}],
+            tools=[{"googleSearch": {}}],
+            timeout=20,
+        )
+        findings = response.choices[0].message.content
+        if not findings:
             return json.dumps({
                 "status": "inconclusive",
-                "message": f"Couldn't find '{dish_name}' at {restaurant_name} online",
+                "message": f"No information found for '{dish_name}' at {restaurant_name}",
                 "suggestion": "Contact the restaurant directly about allergen info"
             })
 
-        # Get ingredient details for top result
-        recipe_id = results[0]["id"]
-        info_url = f"{SPOONACULAR_BASE}/recipes/{recipe_id}/information"
-        info_response = requests.get(
-            info_url,
-            params={"apiKey": SPOONACULAR_API_KEY},
-            timeout=10
-        )
-
-        if info_response.status_code != 200:
-            return json.dumps({
-                "status": "inconclusive",
-                "message": "Found dish but couldn't load full details"
-            })
-
-        recipe = info_response.json()
-        ingredients = recipe.get("extendedIngredients", [])
-
-        # Check if allergen is in ingredients
-        allergen_lower = allergen.lower()
-        allergen_found = False
-        allergen_ingredients = []
-
-        for ing in ingredients:
-            ing_name = ing.get("original", "").lower()
-            if allergen_lower in ing_name:
-                allergen_found = True
-                allergen_ingredients.append(ing.get("original", ""))
-
         return json.dumps({
-            "dish": results[0].get("title", "Unknown"),
             "restaurant": restaurant_name,
+            "dish": dish_name,
             "allergen_queried": allergen,
-            "status": "contains" if allergen_found else "appears_safe",
-            "allergen_ingredients": allergen_ingredients,
-            "all_ingredients": [ing.get("original") for ing in ingredients[:5]],
-            "warning": "⚠️ Always verify with restaurant—recipes may vary" if not allergen_found else "❌ This dish appears to contain your allergen"
+            "findings": findings,
+            "source": "gemini_web_search",
+            "warning": "⚠️ AI-summarized web search result, not verified restaurant data. Always confirm with staff before ordering."
         })
 
-    except requests.RequestException as e:
-        return json.dumps({
-            "error": f"Network error: {str(e)[:100]}",
-            "suggestion": "Check your internet connection or try again"
-        })
     except Exception as e:
-        return json.dumps({"error": f"Unexpected error: {str(e)[:100]}"})
+        return json.dumps({
+            "error": f"Search failed: {str(e)[:150]}",
+            "suggestion": "Contact the restaurant directly about allergen info"
+        })
 
 
 # ============================================================================
@@ -201,85 +195,84 @@ def get_common_substitutes(ingredient: str) -> list:
 # ============================================================================
 # Tool 3: generate_allergen_disclaimer
 # ============================================================================
-
-TRANSLATIONS = {
-    "spanish": {
-        "base": "Tengo alergia a: {allergies}. Por favor, asegúrate de evitar la contaminación cruzada durante la preparación de alimentos.",
-        "cultural": {
-            "shellfish": "Muchos platos usan caldo de mariscos o salsa de camarones. Pregunta primero.",
-            "peanuts": "La salsa de cacahuete es común en muchos platos. Verifica siempre.",
-        }
-    },
-    "japanese": {
-        "base": "私は{allergies}にアレルギーがあります。食事の準備時に交差汚染がないようにしてください。",
-        "cultural": {
-            "shellfish": "多くの日本料理は出汁（だし）を使用します。これはエビやカニを使います。確認してください。",
-            "peanuts": "ピーナッツはアレルギー表示が必要な場合があります。事前に確認してください。",
-        }
-    },
-    "french": {
-        "base": "J'ai une allergie à: {allergies}. Veuillez vous assurer qu'il n'y a pas de contamination croisée lors de la préparation.",
-        "cultural": {
-            "dairy": "Le beurre et la crème sont courants dans la cuisine française. Demandez des alternatives.",
-        }
-    },
-    "mandarin": {
-        "base": "我对{allergies}过敏。请确保食物准备过程中没有交叉污染。",
-        "cultural": {
-            "shellfish": "许多中文菜肴使用虾酱或蚝油。准备前请确认。",
-            "peanuts": "花生油在许多炒菜中使用。请询问。",
-        }
-    },
-    "arabic": {
-        "base": "أنا مصاب بحساسية من: {allergies}. يرجى التأكد من عدم التلوث المتبادل أثناء تحضير الطعام.",
-        "cultural": {
-            "shellfish": "العديد من الأطباق تستخدم منتجات بحرية. تأكد من المكونات.",
-        }
-    },
-}
-
+#
+# Originally a hardcoded dict of 5 languages with cultural notes I wrote from
+# memory (and got Spanish/Mexican cuisine wrong on: mole and peanut oil were
+# missing entirely). Replaced with a single grounded Gemini call, same pattern
+# as search_restaurant_menu: works for any language (not just 5), and the
+# cultural notes come from a web-grounded lookup instead of guesswork.
 
 def generate_allergen_disclaimer(allergies: list, target_language: str) -> str:
-    """Generate an allergy card in target language for travel/dining.
+    """Generate a printable allergy card in any language, with cuisine-specific
+    dishes/ingredients to watch for.
 
     Args:
         allergies: list of allergen names, e.g., ["peanuts", "dairy"]
-        target_language: e.g., "Spanish", "Japanese", "French"
+        target_language: any language name, e.g., "Spanish", "Thai", "Swahili"
 
-    Returns: JSON with translated disclaimer card
+    Returns: JSON with translated card text and cuisine-specific cultural notes
     """
-    try:
-        # Get translation
-        language_lower = target_language.lower()
-        allergie_list = ", ".join(allergies) if allergies else "unknown allergens"
+    if not os.getenv("GOOGLE_CLOUD_PROJECT"):
+        return json.dumps({"error": "GOOGLE_CLOUD_PROJECT not set in .env"})
 
-        if language_lower in TRANSLATIONS:
-            translated_text = TRANSLATIONS[language_lower]["base"].format(allergies=allergie_list)
-            # Add cultural notes if available
-            cultural_notes = []
-            for allergen in allergies:
-                allergen_lower = allergen.lower()
-                if allergen_lower in TRANSLATIONS[language_lower]["cultural"]:
-                    cultural_notes.append(TRANSLATIONS[language_lower]["cultural"][allergen_lower])
-        else:
-            # Fallback to English
-            translated_text = f"I am allergic to: {allergie_list}. Please ensure no cross-contamination during food preparation."
-            cultural_notes = []
+    allergy_list = ", ".join(allergies) if allergies else "unknown allergens"
+    prompt = (
+        f"A traveler is allergic to: {allergy_list}. Help them prepare for dining out "
+        f"in a region where {target_language} is spoken.\n\n"
+        f"1. Translate this into {target_language}, polite and clear for restaurant staff: "
+        f"\"I am allergic to {allergy_list}. Please ensure no cross-contamination during "
+        f"food preparation.\"\n"
+        f"2. Identify the cuisine(s) most associated with {target_language}-speaking regions. "
+        f"Search the web if it helps you be accurate. List 2-4 SPECIFIC real dishes, sauces, or "
+        f"cooking practices from that cuisine that commonly contain {allergy_list}, so the "
+        f"traveler knows exactly what to ask about. Name actual dishes/sauces, not generic advice.\n\n"
+        f"Respond with ONLY valid JSON, no markdown fences, in this exact shape:\n"
+        f'{{"translated_card": "<translated text>", "cultural_notes": ["<note 1>", "<note 2>"]}}'
+    )
+
+    try:
+        response = litellm.completion(
+            model="vertex_ai/gemini-3.5-flash-lite",
+            vertex_location="global",
+            messages=[{"role": "user", "content": prompt}],
+            tools=[{"googleSearch": {}}],
+            timeout=20,
+        )
+        raw = (response.choices[0].message.content or "").strip()
+        # Models sometimes wrap JSON in markdown fences despite instructions.
+        if raw.startswith("```"):
+            raw = raw.strip("`")
+            if raw.lower().startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return json.dumps({
+                "language": target_language,
+                "allergies": allergies,
+                "translated_card": raw,
+                "cultural_notes": [],
+                "note": "Model did not return structured JSON; showing raw response.",
+                "usage": "Print this card or screenshot to show restaurants/chefs when traveling",
+                "warning": "⚠️ Always show to staff before ordering to confirm safety"
+            })
 
         return json.dumps({
             "language": target_language,
-            "translated_card": translated_text,
             "allergies": allergies,
-            "cultural_tips": cultural_notes if cultural_notes else ["No specific tips for this language"],
+            "translated_card": parsed.get("translated_card", ""),
+            "cultural_notes": parsed.get("cultural_notes", []),
+            "source": "gemini_web_search",
             "usage": "Print this card or screenshot to show restaurants/chefs when traveling",
-            "warning": "⚠️ Always show to staff before ordering to confirm safety",
-            "supported_languages": list(TRANSLATIONS.keys())
+            "warning": "⚠️ Always show to staff before ordering to confirm safety"
         })
 
     except Exception as e:
         return json.dumps({
             "error": f"Disclaimer generation failed: {str(e)[:100]}",
-            "fallback": f"I am allergic to: {', '.join(allergies)}"
+            "fallback": f"I am allergic to: {allergy_list}"
         })
 
 
@@ -338,7 +331,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "generate_allergen_disclaimer",
-            "description": "Generate a printable allergy card in any language for travel or dining at non-English restaurants. Great for communicating allergies when you don't speak the local language.",
+            "description": "Generate a printable allergy card in any language for travel or dining at non-English restaurants, plus specific dishes/sauces from that region's cuisine to watch out for. Great for communicating allergies when you don't speak the local language.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -349,7 +342,7 @@ TOOLS = [
                     },
                     "target_language": {
                         "type": "string",
-                        "description": "Language for the card. Supported: Spanish, Japanese, French, Mandarin, Arabic. Others return English."
+                        "description": "Any language name, e.g. 'Spanish', 'Thai', 'Swahili'."
                     },
                 },
                 "required": ["allergies", "target_language"],
