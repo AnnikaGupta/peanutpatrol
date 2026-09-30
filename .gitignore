@@ -5,6 +5,9 @@
 __pycache__/
 *.py[cod]
 
+# Editable install metadata
+*.egg-info/
+
 # Local secrets and config. Commit .env.example instead, never .env.
 .env
 
