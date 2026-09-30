@@ -17,6 +17,34 @@ ALLERGENS = [
     "fish", "soy", "wheat", "gluten", "sesame", "sulfites", "mustard"
 ]
 
+
+def _grounded_json_call(prompt: str):
+    """Run a Gemini call with Google Search grounding and parse strict-JSON
+    output. Shared by search_restaurant_menu and generate_allergen_disclaimer.
+
+    Returns a parsed dict, or None if the call failed or didn't return valid
+    JSON (callers should fall back to a raw-text response in that case).
+    """
+    response = litellm.completion(
+        model="vertex_ai/gemini-3.5-flash-lite",
+        vertex_location="global",
+        messages=[{"role": "user", "content": prompt}],
+        tools=[{"googleSearch": {}}],
+        timeout=20,
+    )
+    raw = (response.choices[0].message.content or "").strip()
+    # Models sometimes wrap JSON in markdown fences despite instructions.
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.lower().startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
 # ============================================================================
 # Tool 1: search_restaurant_menu
 # ============================================================================
@@ -50,31 +78,38 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str) 
             "suggestion": "Contact the restaurant directly about allergen info"
         })
 
+    # Deliberately avoids "safe"/"unsafe" framing: ingredient data can only
+    # confirm an allergen's presence, never its true absence (cross-contact,
+    # hidden ingredients, and recipe changes are all invisible to a menu
+    # search). "ask_restaurant" covers both "nothing found" and "found but
+    # inconclusive" -- the honest answer in both cases is the same action.
     prompt = (
-        f"Someone with a {allergen} allergy wants to know if '{dish_name}' at "
-        f"'{restaurant_name}' is safe to eat. Search for this specific restaurant's "
-        f"posted menu, ingredient list, or allergen guide if it exists online. "
-        f"If you find restaurant-specific information, say so clearly and summarize it. "
-        f"If you cannot find anything specific to this restaurant, say that explicitly, "
-        f"then give general knowledge about whether {allergen} is typically found in this "
-        f"type of dish. Always end by recommending the user confirm with restaurant staff "
-        f"directly, since recipes and cross-contamination risk vary by location. "
-        f"Keep the answer under 150 words."
+        f"Someone with a {allergen} allergy is asking about '{dish_name}' at "
+        f"'{restaurant_name}'. Search for this specific restaurant's posted menu, "
+        f"ingredient list, or allergen guide if it exists online.\n\n"
+        f"Classify the result into exactly one status:\n"
+        f'- "likely_contains": you found evidence {allergen} is a listed ingredient\n'
+        f'- "not_found_in_ingredients": you found the dish/menu but {allergen} is not '
+        f"listed (this does NOT mean the dish is safe -- cross-contact is still possible)\n"
+        f'- "ask_restaurant": you could not find restaurant-specific information at all\n\n'
+        f"Write a headline that LEADS with the answer in under 15 words, restaurant-staff-"
+        f"friendly language (never say 'safe' -- say things like 'contains {allergen}', "
+        f"'{allergen} not listed', or 'ask staff to confirm'). If the question was about "
+        f"the whole menu rather than one dish, also list up to 4 specific dish names worth "
+        f"asking about by name.\n\n"
+        f"Respond with ONLY valid JSON, no markdown fences, in this exact shape:\n"
+        f'{{"status": "likely_contains|not_found_in_ingredients|ask_restaurant", '
+        f'"headline": "<short lead answer>", "explanation": "<fuller context, under 100 words>", '
+        f'"dishes_to_ask_about": ["<dish 1>", "<dish 2>"]}}\n'
+        f'(dishes_to_ask_about may be an empty list if a single dish was already named)'
     )
 
     try:
-        response = litellm.completion(
-            model="vertex_ai/gemini-3.5-flash-lite",
-            vertex_location="global",
-            messages=[{"role": "user", "content": prompt}],
-            tools=[{"googleSearch": {}}],
-            timeout=20,
-        )
-        findings = response.choices[0].message.content
-        if not findings:
+        parsed = _grounded_json_call(prompt)
+        if parsed is None:
             return json.dumps({
-                "status": "inconclusive",
-                "message": f"No information found for '{dish_name}' at {restaurant_name}",
+                "status": "ask_restaurant",
+                "message": f"Could not get a clear answer for '{dish_name}' at {restaurant_name}",
                 "suggestion": "Contact the restaurant directly about allergen info"
             })
 
@@ -82,7 +117,10 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str) 
             "restaurant": restaurant_name,
             "dish": dish_name,
             "allergen_queried": allergen,
-            "findings": findings,
+            "status": parsed.get("status", "ask_restaurant"),
+            "headline": parsed.get("headline", ""),
+            "explanation": parsed.get("explanation", ""),
+            "dishes_to_ask_about": parsed.get("dishes_to_ask_about", []),
             "source": "gemini_web_search",
             "warning": "⚠️ AI-summarized web search result, not verified restaurant data. Always confirm with staff before ordering."
         })
@@ -231,30 +269,14 @@ def generate_allergen_disclaimer(allergies: list, target_language: str) -> str:
     )
 
     try:
-        response = litellm.completion(
-            model="vertex_ai/gemini-3.5-flash-lite",
-            vertex_location="global",
-            messages=[{"role": "user", "content": prompt}],
-            tools=[{"googleSearch": {}}],
-            timeout=20,
-        )
-        raw = (response.choices[0].message.content or "").strip()
-        # Models sometimes wrap JSON in markdown fences despite instructions.
-        if raw.startswith("```"):
-            raw = raw.strip("`")
-            if raw.lower().startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
-
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
+        parsed = _grounded_json_call(prompt)
+        if parsed is None:
             return json.dumps({
                 "language": target_language,
                 "allergies": allergies,
-                "translated_card": raw,
+                "translated_card": "",
                 "cultural_notes": [],
-                "note": "Model did not return structured JSON; showing raw response.",
+                "note": "Model did not return structured JSON.",
                 "usage": "Print this card or screenshot to show restaurants/chefs when traveling",
                 "warning": "⚠️ Always show to staff before ordering to confirm safety"
             })

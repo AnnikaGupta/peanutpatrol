@@ -3,120 +3,246 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Gemini Web Tool Calling</title>
+        <title>Peanut Patrol</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
         <style>
             * {
                 box-sizing: border-box;
                 margin: 0;
                 padding: 0;
             }
+            :root {
+                --brown: #7c4a25;
+                --brown-dark: #5c3618;
+                --cream: #fdf6ec;
+                --card: #ffffff;
+                --border: #eadfc9;
+                --text: #3a2e1f;
+                --muted: #8a7a63;
+                --info: #2f6f8f;
+                --warn: #c2790a;
+                --danger: #c23b22;
+            }
             body {
-                font-family: system-ui, sans-serif;
-                height: 100vh;
+                font-family: system-ui, -apple-system, sans-serif;
+                min-height: 100vh;
                 display: flex;
                 justify-content: center;
-                align-items: center;
-                padding: 3rem 1rem;
+                background: var(--cream);
+                padding: 2rem 1rem;
+                color: var(--text);
             }
             #container {
                 width: 100%;
-                max-width: 900px;
+                max-width: 760px;
                 display: flex;
                 flex-direction: column;
-                border: 1px solid #e0e0e0;
+                background: var(--card);
+                border-radius: 16px;
+                box-shadow: 0 4px 24px rgba(124, 74, 37, 0.12);
+                overflow: hidden;
+                height: fit-content;
+            }
+            header {
+                padding: 1.5rem 2rem;
+                background: linear-gradient(135deg, var(--brown), var(--brown-dark));
+                color: white;
+            }
+            header h1 {
+                font-size: 1.4rem;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+            header p {
+                font-size: 0.85rem;
+                opacity: 0.85;
+                margin-top: 0.25rem;
             }
             #messages {
                 overflow-y: auto;
-                padding: 2rem;
+                padding: 1.5rem 2rem;
                 display: flex;
                 flex-direction: column;
-                gap: 1.5rem;
-                min-height: 450px;
-                max-height: 70vh;
+                gap: 1.25rem;
+                min-height: 420px;
+                max-height: 60vh;
+            }
+            #starters {
+                padding: 0 2rem 1.25rem;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+            .starter-chip {
+                font-size: 0.8rem;
+                padding: 0.5rem 0.9rem;
+                background: var(--cream);
+                border: 1px solid var(--border);
+                border-radius: 999px;
+                cursor: pointer;
+                color: var(--brown-dark);
+            }
+            .starter-chip:hover {
+                background: var(--border);
             }
             .msg {
-                line-height: 1.5;
-                max-width: 80%;
+                line-height: 1.55;
+                max-width: 88%;
+                font-size: 0.95rem;
             }
             .msg.user {
                 align-self: flex-end;
                 text-align: right;
             }
             .msg .role {
-                font-size: 0.75rem;
+                font-size: 0.7rem;
                 text-transform: uppercase;
-                letter-spacing: 0.05em;
-                color: #999;
-                margin-bottom: 0.25rem;
+                letter-spacing: 0.06em;
+                color: var(--muted);
+                margin-bottom: 0.2rem;
             }
+            .msg .content p { margin: 0.4em 0; }
+            .msg .content ul, .msg .content ol { margin: 0.4em 0 0.4em 1.2em; }
+            .msg .content strong { color: var(--brown-dark); }
             .msg.loading .content {
-                color: #999;
+                color: var(--muted);
+                font-style: italic;
             }
             #input-area {
                 display: flex;
-                gap: 1rem;
-                padding: 1.5rem;
-                border-top: 1px solid #e0e0e0;
+                gap: 0.75rem;
+                padding: 1.25rem 2rem;
+                border-top: 1px solid var(--border);
             }
             #user-input {
                 flex: 1;
-                padding: 0.75rem 0;
-                border: none;
-                border-bottom: 1px solid #e0e0e0;
-                font-size: 1rem;
+                padding: 0.7rem 1rem;
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                font-size: 0.95rem;
                 outline: none;
+                font-family: inherit;
             }
             #user-input:focus {
-                border-bottom-color: #000;
+                border-color: var(--brown);
             }
             button {
-                padding: 0.75rem 1.5rem;
-                background: #000;
+                padding: 0.7rem 1.4rem;
+                background: var(--brown);
                 color: #fff;
                 border: none;
-                font-size: 0.75rem;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
+                border-radius: 10px;
+                font-size: 0.85rem;
+                font-weight: 600;
                 cursor: pointer;
             }
-            .tool {
-                font-family: ui-monospace, monospace;
-                font-size: 0.75rem;
-                color: #555;
-                background: #f5f5f5;
-                border-left: 3px solid #f59e0b;
-                padding: 0.5rem 0.75rem;
-                margin: 0.25rem 0 0.75rem;
-                white-space: pre-wrap;
-                word-break: break-word;
+            button:hover { background: var(--brown-dark); }
+            button:disabled {
+                opacity: 0.4;
+                cursor: default;
             }
-            .tool .label {
+
+            /* Tool call cards */
+            .tool-card {
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                overflow: hidden;
+                font-size: 0.85rem;
+                max-width: 92%;
+            }
+            .tool-card .tool-head {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0.55rem 0.85rem;
+                background: var(--cream);
+                border-bottom: 1px solid var(--border);
+                color: var(--brown-dark);
+                font-weight: 600;
+            }
+            .tool-card .tool-args {
+                font-weight: 400;
+                color: var(--muted);
+                font-family: ui-monospace, monospace;
+                font-size: 0.78rem;
+            }
+            .tool-card .tool-body {
+                padding: 0.7rem 0.85rem;
+                display: flex;
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+            .tool-card .field-label {
+                font-size: 0.68rem;
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
-                color: #b45309;
+                color: var(--muted);
+                margin-bottom: 0.15rem;
             }
-            button:disabled {
-                opacity: 0.3;
+            .tool-card .field-value {
+                white-space: pre-wrap;
+            }
+            .tool-card ul {
+                margin: 0.2rem 0 0.2rem 1.1rem;
+            }
+            .status-pill {
+                display: inline-block;
+                font-size: 0.7rem;
+                font-weight: 600;
+                padding: 0.15rem 0.55rem;
+                border-radius: 999px;
+                margin-left: 0.4rem;
+            }
+            .status-info { background: #e5eff3; color: var(--info); }
+            .status-warn { background: #fdf0dc; color: var(--warn); }
+            .status-danger { background: #fbe6e2; color: var(--danger); }
+            .warning-line {
+                color: var(--warn);
+                font-size: 0.8rem;
+            }
+            .warning-compact {
+                font-size: 0.72rem;
+                opacity: 0.75;
+            }
+            #disclaimer {
+                padding: 0.5rem 2rem;
+                font-size: 0.72rem;
+                color: var(--muted);
+                background: var(--cream);
+                border-top: 1px solid var(--border);
+                text-align: center;
             }
         </style>
     </head>
     <body>
         <div id="container">
+            <header>
+                <h1>🥜 Peanut Patrol</h1>
+                <p>Your allergy-aware food assistant — check restaurant dishes, swap risky ingredients, and get travel allergy cards in any language.</p>
+            </header>
             <div id="messages"></div>
+            <div id="starters">
+                <div class="starter-chip" data-q="I'm allergic to peanuts. Is the chicken bowl at Chipotle safe for me?">🍽️ Check a restaurant dish</div>
+                <div class="starter-chip" data-q="I'm allergic to dairy. What can I use instead of butter in chocolate chip cookies?">🔄 Substitute an ingredient</div>
+                <div class="starter-chip" data-q="I'm traveling to Mexico and I'm allergic to peanuts and tree nuts. Make me an allergy card in Spanish.">🌍 Get a travel allergy card</div>
+            </div>
             <div id="input-area">
                 <input
                     type="text"
                     id="user-input"
-                    placeholder="Type a message..."
+                    placeholder="Ask about a restaurant dish, a recipe swap, or travel allergies..."
                     autocomplete="off"
                 />
                 <button id="send-btn">Send</button>
             </div>
+            <div id="disclaimer">⚠️ Ingredient data doesn't guarantee absence of cross-contact. Always confirm with restaurant staff.</div>
         </div>
         <script>
-            const messages = document.getElementById("messages");
+            const messagesEl = document.getElementById("messages");
             const userInput = document.getElementById("user-input");
             const sendBtn = document.getElementById("send-btn");
+            const startersEl = document.getElementById("starters");
             let sessionId = null;
 
             function addMessage(role, text, isLoading = false) {
@@ -125,19 +251,114 @@
                     "msg " +
                     (role === "you" ? "user" : "assistant") +
                     (isLoading ? " loading" : "");
+                const contentHtml = isLoading
+                    ? escapeHtml(text)
+                    : marked.parse(text || "");
                 div.innerHTML =
-                    '<div class="role">' +
-                    role +
-                    '</div><div class="content">' +
-                    text +
-                    "</div>";
-                messages.appendChild(div);
-                messages.scrollTop = messages.scrollHeight;
+                    '<div class="role">' + role + '</div><div class="content">' + contentHtml + "</div>";
+                messagesEl.appendChild(div);
+                messagesEl.scrollTop = messagesEl.scrollHeight;
                 return div;
             }
 
-            async function send() {
-                const text = userInput.value.trim();
+            function escapeHtml(s) {
+                const d = document.createElement("div");
+                d.textContent = s;
+                return d.innerHTML;
+            }
+
+            const TOOL_META = {
+                search_restaurant_menu: { icon: "🍽️", label: "Restaurant Check" },
+                find_ingredient_substitute: { icon: "🔄", label: "Ingredient Substitute" },
+                generate_allergen_disclaimer: { icon: "🌍", label: "Travel Allergy Card" },
+            };
+
+            function statusPill(result) {
+                if (result.error) return '<span class="status-pill status-danger">error</span>';
+                if (result.status === "likely_contains") return '<span class="status-pill status-danger">likely contains allergen</span>';
+                if (result.status === "not_found_in_ingredients") return '<span class="status-pill status-info">not in listed ingredients</span>';
+                if (result.status === "ask_restaurant") return '<span class="status-pill status-warn">ask restaurant</span>';
+                return "";
+            }
+
+            function renderToolCard(call) {
+                const meta = TOOL_META[call.name] || { icon: "🛠️", label: call.name };
+                let result;
+                try {
+                    result = JSON.parse(call.result);
+                } catch (e) {
+                    result = null;
+                }
+
+                const card = document.createElement("div");
+                card.className = "tool-card";
+
+                const head = document.createElement("div");
+                head.className = "tool-head";
+                head.innerHTML =
+                    meta.icon + " " + meta.label +
+                    (result ? statusPill(result) : "") +
+                    '<span class="tool-args">(' + escapeHtml(JSON.stringify(call.args)) + ")</span>";
+                card.appendChild(head);
+
+                const body = document.createElement("div");
+                body.className = "tool-body";
+
+                if (!result) {
+                    body.innerHTML = '<div class="field-value">' + escapeHtml(call.result) + "</div>";
+                } else if (result.error) {
+                    body.innerHTML =
+                        '<div class="field-value">❌ ' + escapeHtml(result.error) + "</div>" +
+                        (result.suggestion ? '<div class="warning-line">' + escapeHtml(result.suggestion) + "</div>" : "");
+                } else {
+                    // Lead with the headline (the direct answer), then supporting detail.
+                    if (result.headline) {
+                        body.innerHTML += '<div class="field-value"><strong>' + escapeHtml(result.headline) + "</strong></div>";
+                    }
+                    if (result.dishes_to_ask_about && result.dishes_to_ask_about.length) {
+                        let html = '<div class="field-label">Dishes worth asking about</div><ul>';
+                        for (const d of result.dishes_to_ask_about) html += "<li>" + escapeHtml(d) + "</li>";
+                        html += "</ul>";
+                        body.innerHTML += html;
+                    }
+                    // Fall back to whatever text field is richest if there's no headline
+                    // (e.g. translated_card, or a plain message for inconclusive lookups).
+                    const bodyText = result.explanation || result.translated_card || result.message || "";
+                    if (bodyText) {
+                        body.innerHTML += '<div class="field-value">' + marked.parseInline(bodyText) + "</div>";
+                    }
+                    if (result.cultural_notes && result.cultural_notes.length) {
+                        let html = '<div class="field-label">Cuisine notes</div><ul>';
+                        for (const note of result.cultural_notes) html += "<li>" + escapeHtml(note) + "</li>";
+                        html += "</ul>";
+                        body.innerHTML += html;
+                    }
+                    if (result.substitutes && result.substitutes.length) {
+                        let html = '<div class="field-label">Substitutes</div><ul>';
+                        for (const s of result.substitutes) {
+                            html += "<li>" + escapeHtml(typeof s === "string" ? s : JSON.stringify(s)) + "</li>";
+                        }
+                        html += "</ul>";
+                        body.innerHTML += html;
+                    }
+                    if (result.suggestion) {
+                        body.innerHTML += '<div class="warning-line">' + escapeHtml(result.suggestion) + "</div>";
+                    }
+                    // The full warning text is preserved here for transparency (and in the
+                    // raw tool_calls JSON), just shown compactly -- the persistent footer
+                    // disclaimer covers the everyday reminder so this doesn't repeat a large
+                    // warning on every single message.
+                    if (result.warning) {
+                        body.innerHTML += '<div class="warning-line warning-compact">' + escapeHtml(result.warning) + "</div>";
+                    }
+                }
+
+                card.appendChild(body);
+                return card;
+            }
+
+            async function send(overrideText) {
+                const text = (overrideText !== undefined ? overrideText : userInput.value).trim();
                 if (!text) return;
 
                 userInput.value = "";
@@ -157,37 +378,38 @@
                     const data = await res.json();
                     sessionId = data.session_id;
 
-                    // Show each tool the harness ran, above the assistant's answer
                     for (const call of data.tool_calls || []) {
-                        const div = document.createElement("div");
-                        div.className = "tool";
-                        const label = document.createElement("span");
-                        label.className = "label";
-                        label.textContent = "tool call  ";
-                        div.appendChild(label);
-                        div.appendChild(
-                            document.createTextNode(
-                                call.name + "(" + JSON.stringify(call.args) + ")\n→ " + call.result,
-                            ),
-                        );
-                        messages.insertBefore(div, loading);
+                        messagesEl.insertBefore(renderToolCard(call), loading);
                     }
-                    loading.querySelector(".content").textContent =
-                        data.response;
+                    loading.querySelector(".content").innerHTML = marked.parse(data.response || "");
                     loading.classList.remove("loading");
                 } catch (e) {
-                    loading.querySelector(".content").textContent =
-                        "Error: " + e.message;
+                    loading.querySelector(".content").textContent = "Error: " + e.message;
                     loading.classList.remove("loading");
                 }
                 sendBtn.disabled = false;
                 userInput.focus();
+                messagesEl.scrollTop = messagesEl.scrollHeight;
             }
 
-            sendBtn.addEventListener("click", send);
+            sendBtn.addEventListener("click", () => send());
             userInput.addEventListener("keydown", function (e) {
                 if (e.key === "Enter") send();
             });
+            startersEl.addEventListener("click", function (e) {
+                const chip = e.target.closest(".starter-chip");
+                if (chip) send(chip.dataset.q);
+            });
+
+            addMessage(
+                "assistant",
+                "Hello! I'm Peanut Patrol, your allergy-aware food assistant.\n\n" +
+                "Here's how I can help:\n\n" +
+                "- **Check restaurant dishes** — tell me a restaurant and a dish, and I'll check if it's likely to contain an allergen.\n" +
+                "- **Find ingredient substitutes** — baking or cooking and need a safe swap for something? Just ask.\n" +
+                "- **Travel allergy cards** — heading somewhere English isn't spoken? I'll generate a translated allergy card to show restaurant staff.\n\n" +
+                "What food allergies do you have, and how can I help you today?",
+            );
             userInput.focus();
         </script>
     </body>
