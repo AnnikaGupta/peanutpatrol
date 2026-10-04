@@ -18,20 +18,34 @@ ALLERGENS = [
 ]
 
 
-def _grounded_json_call(prompt: str):
+def _grounded_json_call(prompt: str, max_retries: int = 1):
     """Run a Gemini call with Google Search grounding and parse strict-JSON
     output. Shared by search_restaurant_menu and generate_allergen_disclaimer.
+
+    Search + synthesis genuinely takes longer than a plain completion and
+    occasionally times out transiently -- retried once before giving up, so
+    callers' except blocks (which already handle this gracefully) see fewer
+    one-off failures.
 
     Returns a parsed dict, or None if the call failed or didn't return valid
     JSON (callers should fall back to a raw-text response in that case).
     """
-    response = litellm.completion(
-        model="vertex_ai/gemini-3.5-flash-lite",
-        vertex_location="global",
-        messages=[{"role": "user", "content": prompt}],
-        tools=[{"googleSearch": {}}],
-        timeout=20,
-    )
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = litellm.completion(
+                model="vertex_ai/gemini-3.5-flash-lite",
+                vertex_location="global",
+                messages=[{"role": "user", "content": prompt}],
+                tools=[{"googleSearch": {}}],
+                timeout=30,
+            )
+            break
+        except litellm.Timeout as e:
+            last_error = e
+    else:
+        raise last_error
+
     raw = (response.choices[0].message.content or "").strip()
     # Models sometimes wrap JSON in markdown fences despite instructions.
     if raw.startswith("```"):
