@@ -16,5 +16,17 @@ dependencies = [
     "python-dotenv>=1.0.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "httpx>=0.27.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: hits real Spoonacular/Gemini APIs -- costs quota, slower, non-deterministic. Run explicitly with -m integration.",
+]
+addopts = "-m 'not integration'"
+
 [tool.setuptools]
 py-modules = ["app", "tools"]
