@@ -7,7 +7,7 @@
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
-            href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Archivo+Narrow:wght@600;700&display=swap"
+            href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;800&display=swap"
             rel="stylesheet"
         />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
@@ -33,8 +33,13 @@
                 height: 100%;
             }
             body {
-                font-family: "Archivo", system-ui, sans-serif;
-                background: var(--paper);
+                font-family: "Manrope", system-ui, sans-serif;
+                /* Ivory wash (~10% opacity) over the pattern so it reads as
+                   backdrop texture rather than competing with the card. */
+                background:
+                    linear-gradient(rgba(253, 252, 249, 0.1), rgba(253, 252, 249, 0.1)),
+                    var(--paper) url("/allergen_pattern.png") repeat;
+                background-size: auto, 560px auto;
                 color: var(--ink);
                 font-size: 15px;
                 line-height: 1.6;
@@ -46,12 +51,18 @@
             }
             #app {
                 width: 100%;
-                max-width: 720px;
+                max-width: 828px;
                 max-height: 90vh;
                 display: flex;
                 flex-direction: column;
+                background: var(--paper);
                 border: 1px solid var(--line);
                 border-radius: var(--radius);
+                /* Two-layer shadow (tight + diffuse) so the card reads as
+                   floating above the busy illustrated backdrop. */
+                box-shadow:
+                    0 2px 8px rgba(59, 42, 30, 0.12),
+                    0 16px 48px rgba(59, 42, 30, 0.26);
                 overflow: hidden;
             }
 
@@ -89,8 +100,8 @@
                 flex-shrink: 0;
             }
             header h1 {
-                font-family: "Archivo Narrow", sans-serif;
-                font-weight: 700;
+                font-family: "Manrope", sans-serif;
+                font-weight: 800;
                 font-size: 1.7rem;
                 letter-spacing: -0.01em;
             }
@@ -122,8 +133,8 @@
                 margin-bottom: 0;
             }
             .cap-name {
-                font-family: "Archivo Narrow", sans-serif;
-                font-weight: 700;
+                font-family: "Manrope", sans-serif;
+                font-weight: 600;
                 font-size: 0.95rem;
             }
             .cap-desc {
@@ -145,8 +156,8 @@
                 gap: 0.55rem;
             }
             .chip {
-                font-family: "Archivo", sans-serif;
-                font-weight: 500;
+                font-family: "Manrope", sans-serif;
+                font-weight: 600;
                 font-size: 0.85rem;
                 padding: 0.55rem 0.95rem;
                 background: var(--paper);
@@ -189,8 +200,8 @@
                 background: rgba(var(--shell-rgb), 0.05);
             }
             .msg .role {
-                font-family: "Archivo Narrow", sans-serif;
-                font-weight: 700;
+                font-family: "Manrope", sans-serif;
+                font-weight: 600;
                 font-size: 0.68rem;
                 text-transform: uppercase;
                 letter-spacing: 0.04em;
@@ -230,8 +241,8 @@
                 box-shadow: 0 0 0 3px rgba(var(--shell-rgb), 0.18);
             }
             #send-btn {
-                font-family: "Archivo Narrow", sans-serif;
-                font-weight: 700;
+                font-family: "Manrope", sans-serif;
+                font-weight: 600;
                 font-size: 0.85rem;
                 padding: 0.7rem 1.5rem;
                 background: var(--shell);
@@ -264,8 +275,8 @@
                 height: 1.1rem;
                 border: 1px solid var(--muted);
                 border-radius: 50%;
-                font-family: "Archivo Narrow", sans-serif;
-                font-weight: 700;
+                font-family: "Manrope", sans-serif;
+                font-weight: 600;
                 font-size: 0.65rem;
             }
 
@@ -288,8 +299,8 @@
                 border-bottom: 1px solid var(--line);
             }
             .tool-head .tool-name {
-                font-family: "Archivo Narrow", sans-serif;
-                font-weight: 700;
+                font-family: "Manrope", sans-serif;
+                font-weight: 600;
                 font-size: 0.68rem;
                 text-transform: uppercase;
                 letter-spacing: 0.03em;
@@ -303,8 +314,8 @@
                "stamped/authoritative" than the rest of the warmer chrome,
                since this is the one safety-critical signal in the UI. */
             .status-tag {
-                font-family: "Archivo Narrow", sans-serif;
-                font-weight: 700;
+                font-family: "Manrope", sans-serif;
+                font-weight: 600;
                 font-size: 0.66rem;
                 text-transform: uppercase;
                 letter-spacing: 0.03em;
@@ -319,8 +330,8 @@
             .tool-body .field-value { margin-bottom: 0.5rem; }
             .tool-body .field-value:last-child { margin-bottom: 0; }
             .field-label {
-                font-family: "Archivo Narrow", sans-serif;
-                font-weight: 700;
+                font-family: "Manrope", sans-serif;
+                font-weight: 600;
                 font-size: 0.66rem;
                 text-transform: uppercase;
                 letter-spacing: 0.03em;

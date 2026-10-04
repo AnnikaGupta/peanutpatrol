@@ -152,6 +152,11 @@ def logo():
     return FileResponse(Path(__file__).parent / "peanutpatrol_img.png")
 
 
+@app.get("/allergen_pattern.png")
+def pattern():
+    return FileResponse(Path(__file__).parent / "allergen_pattern.png")
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
     # Get or create the session
