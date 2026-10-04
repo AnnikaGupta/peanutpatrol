@@ -434,7 +434,10 @@
 
                 const head = document.createElement("div");
                 head.className = "tool-head";
-                const target = call.args.restaurant_name || call.args.allergenic_ingredient || call.args.target_language || "";
+                let target = call.args.restaurant_name || call.args.allergenic_ingredient || call.args.target_language || "";
+                if (call.args.restaurant_name && call.args.location) {
+                    target += ", " + call.args.location;
+                }
                 head.innerHTML =
                     '<span class="tool-name">' + escapeHtml(toolName) + "</span>" +
                     (result ? statusTag(result) : "") +
@@ -454,6 +457,12 @@
                     // Lead with the headline (the direct answer), then supporting detail.
                     if (result.headline) {
                         body.innerHTML += '<div class="field-value"><strong>' + escapeHtml(result.headline) + "</strong></div>";
+                    }
+                    if (result.location_ambiguous && result.location_options && result.location_options.length) {
+                        let html = '<div class="field-label">Multiple locations found -- which city?</div><ul>';
+                        for (const loc of result.location_options) html += "<li>" + escapeHtml(loc) + "</li>";
+                        html += "</ul>";
+                        body.innerHTML += html;
                     }
                     if (result.candidate_dishes && result.candidate_dishes.length) {
                         let html = '<div class="field-label">Worth asking about (' + escapeHtml(result.allergen_queried || "allergen") + ' not listed)</div><ul>';

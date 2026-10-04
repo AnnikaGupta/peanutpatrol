@@ -62,13 +62,15 @@ def _grounded_json_call(prompt: str):
 # covers small independent restaurants (e.g. a specific NYC spot) that would
 # never appear in any recipe or chain database.
 
-def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str) -> str:
+def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str, location: str = "") -> str:
     """Check whether a dish at a specific restaurant likely contains an allergen.
 
     Args:
         restaurant_name: e.g., "Chipotle", "Panera", "Koo Thai"
         dish_name: e.g., "chicken bowl", "salad", "drunken noodles"
         allergen: e.g., "peanuts", "dairy", "gluten"
+        location: optional city/neighborhood, e.g. "Chicago" or "Upper West Side,
+            NYC" -- disambiguates common restaurant names with multiple locations
 
     Returns: JSON with findings and an explicit confidence/source label
     """
@@ -89,10 +91,19 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str) 
     # was asked -- so this also asks for candidate_dishes: real menu items
     # that don't list the allergen, as a starting point to ask staff about,
     # framed as "worth asking about" rather than "safe".
+    location_clause = f" in {location}" if location else ""
     prompt = (
         f"Someone with a {allergen} allergy is asking about '{dish_name}' at "
-        f"'{restaurant_name}'. Search for this specific restaurant's posted menu, "
-        f"ingredient list, or allergen guide if it exists online.\n\n"
+        f"'{restaurant_name}'{location_clause}. Search for this specific restaurant's "
+        f"posted menu, ingredient list, or allergen guide if it exists online.\n\n"
+        f"IMPORTANT -- name collisions: if your search turns up multiple distinct "
+        f"businesses or locations sharing this name (a chain, or unrelated restaurants "
+        f"that just happen to share a name) and no location was given above, do NOT "
+        f"silently pick one and answer as if it's definitive. Set location_ambiguous to "
+        f"true, list up to 4 cities/areas you found in location_options, and still give "
+        f"a best-effort answer in explanation while noting it may not reflect the user's "
+        f"actual location. If a location WAS given, or the name clearly refers to one "
+        f"place, set location_ambiguous to false.\n\n"
         f"Classify the result into exactly one status:\n"
         f'- "likely_contains": you found evidence {allergen} is a listed ingredient\n'
         f'- "not_found_in_ingredients": you found the dish/menu but {allergen} is not '
@@ -108,12 +119,16 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str) 
         f"Write a headline in under 20 words that leads with the most USEFUL answer -- if "
         f"candidate dishes exist, mention that (e.g. 'X appetizers/entrees don't list {allergen}'), "
         f"not just that other dishes contain it. Never say 'safe' -- say 'doesn't list {allergen}' "
-        f"or 'worth asking about'.\n\n"
+        f"or 'worth asking about'. If location_ambiguous is true, the headline should say so "
+        f"instead (e.g. 'Multiple {restaurant_name} locations found -- confirm the city for an "
+        f"accurate answer') rather than presenting a single-location finding as definitive.\n\n"
         f"Respond with ONLY valid JSON, no markdown fences, in this exact shape:\n"
         f'{{"status": "likely_contains|not_found_in_ingredients|ask_restaurant", '
         f'"headline": "<short lead answer>", "explanation": "<fuller context, under 100 words>", '
-        f'"flagged_dishes": ["<dish 1>"], "candidate_dishes": ["<dish 1>", "<dish 2>"]}}\n'
-        f"(both lists may be empty for a single-named-dish question)"
+        f'"flagged_dishes": ["<dish 1>"], "candidate_dishes": ["<dish 1>", "<dish 2>"], '
+        f'"location_ambiguous": true|false, "location_options": ["<city 1>", "<city 2>"]}}\n'
+        f"(both dish lists may be empty for a single-named-dish question; location_options "
+        f"empty unless location_ambiguous is true)"
     )
 
     try:
@@ -129,11 +144,14 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str) 
             "restaurant": restaurant_name,
             "dish": dish_name,
             "allergen_queried": allergen,
+            "location": location,
             "status": parsed.get("status", "ask_restaurant"),
             "headline": parsed.get("headline", ""),
             "explanation": parsed.get("explanation", ""),
             "flagged_dishes": parsed.get("flagged_dishes", []),
             "candidate_dishes": parsed.get("candidate_dishes", []),
+            "location_ambiguous": parsed.get("location_ambiguous", False),
+            "location_options": parsed.get("location_options", []),
             "source": "gemini_web_search",
             "warning": "⚠️ AI-summarized web search result, not verified restaurant data. Always confirm with staff before ordering."
         })
@@ -335,6 +353,10 @@ TOOLS = [
                     "allergen": {
                         "type": "string",
                         "description": f"Allergen to check for. Options: {', '.join(ALLERGENS)}"
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Optional city or neighborhood, e.g. 'Chicago' or 'Upper West Side, NYC'. Pass this whenever the user mentions it -- common restaurant names can refer to multiple unrelated places, and without a location the tool may have to report that ambiguity instead of a specific answer."
                     },
                 },
                 "required": ["restaurant_name", "dish_name", "allergen"],
