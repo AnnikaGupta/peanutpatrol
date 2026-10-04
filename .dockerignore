@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.DS_Store
+gemini-hello-world/
+.git/
+BUILD_STEPS.md
+PEANUT_PATROL_PLAN.md
