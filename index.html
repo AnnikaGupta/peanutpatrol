@@ -464,6 +464,15 @@
                         html += "</ul>";
                         body.innerHTML += html;
                     }
+                    // Cuisine-level caution (hidden sources like fish sauce or shrimp paste)
+                    // comes before specific dish lists -- it's the non-obvious, genuinely
+                    // useful information for someone who already knows to avoid a dish whose
+                    // name says the allergen.
+                    if (result.cuisine_caution) {
+                        let html = '<div class="field-label">Worth knowing about this cuisine</div>';
+                        html += '<div class="field-value">' + marked.parseInline(result.cuisine_caution) + "</div>";
+                        body.innerHTML += html;
+                    }
                     if (result.candidate_dishes && result.candidate_dishes.length) {
                         let html = '<div class="field-label">Worth asking about (' + escapeHtml(result.allergen_queried || "allergen") + ' not listed)</div><ul>';
                         for (const d of result.candidate_dishes) html += "<li>" + escapeHtml(d) + "</li>";
@@ -471,7 +480,7 @@
                         body.innerHTML += html;
                     }
                     if (result.flagged_dishes && result.flagged_dishes.length) {
-                        let html = '<div class="field-label">Contains ' + escapeHtml(result.allergen_queried || "allergen") + '</div><ul>';
+                        let html = '<div class="field-label">Contains ' + escapeHtml(result.allergen_queried || "allergen") + ' (not obvious from the name)</div><ul>';
                         for (const d of result.flagged_dishes) html += "<li>" + escapeHtml(d) + "</li>";
                         html += "</ul>";
                         body.innerHTML += html;

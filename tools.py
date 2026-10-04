@@ -110,12 +110,22 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str, 
         f"listed (this does NOT mean the dish is safe -- cross-contact is still possible)\n"
         f'- "ask_restaurant": you could not find restaurant-specific information at all\n\n'
         f"If the question is about the whole menu rather than one named dish, find the "
-        f"actual menu and split real dish names into two lists:\n"
-        f"- flagged_dishes: dishes that list {allergen} as an ingredient (avoid or double-check)\n"
-        f"- candidate_dishes: OTHER dishes from that SAME menu that do NOT list {allergen} -- "
-        f"a starting point worth asking about, not a safety guarantee. Always populate this "
-        f"list with real items if the menu has any that don't list the allergen; don't leave "
-        f"it empty just because some other dishes do contain it.\n\n"
+        f"actual menu and build:\n"
+        f"- candidate_dishes: real dishes from that menu that do NOT list {allergen} -- a "
+        f"starting point worth asking about, not a safety guarantee. Always populate this "
+        f"list with real items if the menu has any that don't list the allergen.\n"
+        f"- flagged_dishes: ONLY dishes where {allergen} is a NON-OBVIOUS ingredient -- present "
+        f"but not implied by the dish's name (e.g. a 'Vegetable Fried Rice' made with fish "
+        f"sauce). Someone with a {allergen} allergy already knows to avoid a dish whose name "
+        f"says {allergen} (e.g. 'Shrimp Dumplings', 'Crab Rangoon') -- do NOT list those, it's "
+        f"condescending and adds no information. This list should often be short or empty, "
+        f"and that's fine.\n"
+        f"- cuisine_caution: regardless of specific dishes, note in 1-2 sentences where "
+        f"{allergen} commonly hides in this cuisine in general -- a sauce, broth, paste, or "
+        f"base that might not be obvious from a dish's name at all (e.g. fish sauce, oyster "
+        f"sauce, or shrimp paste in Thai cooking for a shellfish allergy). This is the single "
+        f"most useful thing for someone who already knows to avoid the obvious dishes. Leave "
+        f"empty only if you genuinely don't know of a common hidden source for this cuisine.\n\n"
         f"Write a headline in under 20 words that leads with the most USEFUL answer -- if "
         f"candidate dishes exist, mention that (e.g. 'X appetizers/entrees don't list {allergen}'), "
         f"not just that other dishes contain it. Never say 'safe' -- say 'doesn't list {allergen}' "
@@ -126,9 +136,10 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str, 
         f'{{"status": "likely_contains|not_found_in_ingredients|ask_restaurant", '
         f'"headline": "<short lead answer>", "explanation": "<fuller context, under 100 words>", '
         f'"flagged_dishes": ["<dish 1>"], "candidate_dishes": ["<dish 1>", "<dish 2>"], '
+        f'"cuisine_caution": "<1-2 sentences or empty string>", '
         f'"location_ambiguous": true|false, "location_options": ["<city 1>", "<city 2>"]}}\n'
-        f"(both dish lists may be empty for a single-named-dish question; location_options "
-        f"empty unless location_ambiguous is true)"
+        f"(dish lists may be empty for a single-named-dish question; location_options empty "
+        f"unless location_ambiguous is true)"
     )
 
     try:
@@ -150,6 +161,7 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str, 
             "explanation": parsed.get("explanation", ""),
             "flagged_dishes": parsed.get("flagged_dishes", []),
             "candidate_dishes": parsed.get("candidate_dishes", []),
+            "cuisine_caution": parsed.get("cuisine_caution", ""),
             "location_ambiguous": parsed.get("location_ambiguous", False),
             "location_options": parsed.get("location_options", []),
             "source": "gemini_web_search",
