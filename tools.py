@@ -382,7 +382,7 @@ TOOLS = [
                     },
                     "location": {
                         "type": "string",
-                        "description": "Optional city or neighborhood, e.g. 'Chicago' or 'Upper West Side, NYC'. Pass this whenever the user mentions it -- common restaurant names can refer to multiple unrelated places, and without a location the tool may have to report that ambiguity instead of a specific answer."
+                        "description": "Optional city or neighborhood, e.g. 'Chicago' or 'Upper West Side, NYC'. Pass this only when the user actually stated or clearly implied it -- never guess one. Common restaurant names can refer to multiple unrelated places, and without a location the tool may have to report that ambiguity instead of a specific answer."
                     },
                 },
                 "required": ["restaurant_name", "dish_name", "allergen"],
@@ -425,7 +425,7 @@ TOOLS = [
                     },
                     "target_language": {
                         "type": "string",
-                        "description": "Any language name, e.g. 'Spanish', 'Thai', 'Swahili'."
+                        "description": "A language name the user explicitly stated or clearly implied (e.g. by naming a country/city), such as 'Thai', 'Portuguese', or 'Swahili'. Never fill this in with a guessed or default language -- if the user hasn't indicated where they're going or what language they need, ask them instead of calling this tool."
                     },
                 },
                 "required": ["allergies", "target_language"],

@@ -63,28 +63,16 @@ SYSTEM_PROMPT = (
     "content verbatim. Keep your final reply short: a 2-3 sentence takeaway (the headline "
     "finding, maybe one standout pick, and the safety reminder), not a restatement of every "
     "item already shown above.\n\n"
-    "Always remember the allergies the user has mentioned earlier in the conversation and "
-    "apply them to later questions without asking again.\n\n"
-    "Never invent or assume specifics -- an allergen, a restaurant/dish, an ingredient, or a "
-    "destination/language -- that the user hasn't actually told you. This applies even when "
-    "the argument is required, not just optional ones: never guess a city for "
-    "search_restaurant_menu's location argument because it seems likely or famous -- leave it "
-    "empty unless the user actually stated a city. A guessed location is worse than none, "
-    "because it silently searches the wrong branch of a chain or the wrong restaurant entirely "
-    "instead of letting the tool flag the ambiguity. Likewise, never guess a target_language "
-    "for generate_allergen_disclaimer (e.g. defaulting to Spanish) just because the argument "
-    "is required -- a required argument you don't actually have an answer for is a sign to ask "
-    "the user, not to pick one. If someone signals general intent without specifics (e.g. "
-    "'I want to check a dish at a restaurant' or 'I'm traveling soon'), don't call a tool yet "
-    "and don't fill in a placeholder example -- ask a short, warm clarifying question for "
-    "exactly what's missing. Exactly what's missing depends on what you already know from "
-    "earlier in this conversation: if the user hasn't mentioned their allergies yet, ask for "
-    "both, e.g. 'What are your allergies, and which restaurant and dish are you thinking of?'. "
-    "But if they already told you their allergies earlier (even several turns back), that's "
-    "no longer missing -- only ask for the other piece, e.g. 'Which restaurant and dish are "
-    "you thinking of?' or 'What ingredient or recipe are you working with?'. Re-asking about "
-    "an allergy you were already told is a real failure, not just unnecessary. Only call a "
-    "tool once you actually have the real details from the user."
+    "Remember what the user has already told you earlier in this conversation (allergies "
+    "especially) and never ask for it again -- if they mentioned shellfish three turns ago and "
+    "now ask about travel, that's still their allergy, not a blank to refill.\n\n"
+    "There is no such thing as an example or placeholder result in this app -- every tool call "
+    "you make is shown directly to the user as a real answer. So: if you don't have a real "
+    "allergen, restaurant, city, ingredient, or travel destination/language the user actually "
+    "gave you, the ONLY correct reply is one clarifying question asking for just the piece "
+    "that's missing (nothing you already know) -- never a tool call, never a guess, never a "
+    "'here's one to start with' result. The tool call happens in a later turn, after the user "
+    "answers."
 )
 MAX_TOOL_ROUNDS = 5
 
@@ -104,6 +92,12 @@ def run_agent(messages: list[dict]) -> tuple[str, list[dict]]:
             vertex_location="global",
             messages=messages,
             tools=TOOLS,
+            # Low temperature: this agent's hardest-won behaviors (asking for
+            # missing info instead of guessing, not re-asking known allergies)
+            # are instruction-following correctness, not creative writing --
+            # default temperature was producing meaningfully different
+            # behavior across identical runs.
+            temperature=0.2,
         ).choices[0].message
 
         # Append assistant's reply (text, tool calls, or both) to the context.
