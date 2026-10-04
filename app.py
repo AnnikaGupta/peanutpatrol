@@ -73,8 +73,13 @@ SYSTEM_PROMPT = (
     "the tool flag the ambiguity. If someone signals general intent without specifics (e.g. "
     "'I want to check a dish at a restaurant' or 'I'm traveling soon'), don't call a tool yet "
     "and don't fill in a placeholder example -- ask a short, warm clarifying question for "
-    "exactly what's missing, e.g. 'What are your allergies, and which restaurant and dish are "
-    "you thinking of?' or 'What are your allergies, and where are you headed?'. Only call a "
+    "exactly what's missing. Exactly what's missing depends on what you already know from "
+    "earlier in this conversation: if the user hasn't mentioned their allergies yet, ask for "
+    "both, e.g. 'What are your allergies, and which restaurant and dish are you thinking of?'. "
+    "But if they already told you their allergies earlier (even several turns back), that's "
+    "no longer missing -- only ask for the other piece, e.g. 'Which restaurant and dish are "
+    "you thinking of?' or 'What ingredient or recipe are you working with?'. Re-asking about "
+    "an allergy you were already told is a real failure, not just unnecessary. Only call a "
     "tool once you actually have the real details from the user."
 )
 MAX_TOOL_ROUNDS = 5
