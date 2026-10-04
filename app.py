@@ -44,7 +44,14 @@ SYSTEM_PROMPT = (
     "that, mention flagged_dishes to avoid if useful. Always still close with the disclaimer "
     "that this isn't a guarantee and staff must confirm before ordering.\n\n"
     "Always remember the allergies the user has mentioned earlier in the conversation and "
-    "apply them to later questions without asking again."
+    "apply them to later questions without asking again.\n\n"
+    "Never invent or assume specifics -- an allergen, a restaurant/dish, an ingredient, or a "
+    "destination/language -- that the user hasn't actually told you. If someone signals general "
+    "intent without specifics (e.g. 'I want to check a dish at a restaurant' or 'I'm traveling "
+    "soon'), don't call a tool yet and don't fill in a placeholder example -- ask a short, warm "
+    "clarifying question for exactly what's missing, e.g. 'What are your allergies, and which "
+    "restaurant and dish are you thinking of?' or 'What are your allergies, and where are you "
+    "headed?'. Only call a tool once you actually have the real details from the user."
 )
 MAX_TOOL_ROUNDS = 5
 
@@ -109,6 +116,11 @@ class ChatResponse(BaseModel):
 @app.get("/")
 def index():
     return FileResponse(Path(__file__).parent / "index.html")
+
+
+@app.get("/peanutpatrol_img.png")
+def logo():
+    return FileResponse(Path(__file__).parent / "peanutpatrol_img.png")
 
 
 @app.post("/chat", response_model=ChatResponse)

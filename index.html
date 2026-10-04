@@ -4,6 +4,12 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Peanut Patrol</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Archivo+Narrow:wght@600;700&display=swap"
+            rel="stylesheet"
+        />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
         <style>
             * {
@@ -12,231 +18,364 @@
                 padding: 0;
             }
             :root {
-                --brown: #7c4a25;
-                --brown-dark: #5c3618;
-                --cream: #fdf6ec;
-                --card: #ffffff;
-                --border: #eadfc9;
-                --text: #3a2e1f;
-                --muted: #8a7a63;
-                --info: #2f6f8f;
-                --warn: #c2790a;
-                --danger: #c23b22;
+                /* Grounded in the provided logo's own sampled colors, not a
+                   generic warm-neutral default. */
+                --paper: #fdfcf9;
+                --ink: #3b2a1e;
+                --shell: #deb06d;
+                --shell-rgb: 222, 176, 109;
+                --contains: #9c3b2a;
+                --line: #e4d9c3;
+                --muted: #8a7560;
+                --radius: 8px;
+            }
+            html, body {
+                height: 100%;
             }
             body {
-                font-family: system-ui, -apple-system, sans-serif;
+                font-family: "Archivo", system-ui, sans-serif;
+                background: var(--paper);
+                color: var(--ink);
+                font-size: 15px;
+                line-height: 1.6;
                 min-height: 100vh;
                 display: flex;
                 justify-content: center;
-                background: var(--cream);
+                align-items: center;
                 padding: 2rem 1rem;
-                color: var(--text);
             }
-            #container {
+            #app {
                 width: 100%;
-                max-width: 760px;
+                max-width: 720px;
+                max-height: 90vh;
                 display: flex;
                 flex-direction: column;
-                background: var(--card);
-                border-radius: 16px;
-                box-shadow: 0 4px 24px rgba(124, 74, 37, 0.12);
+                border: 1px solid var(--line);
+                border-radius: var(--radius);
                 overflow: hidden;
-                height: fit-content;
             }
+
+            /* ---------- Header ---------- */
             header {
-                padding: 1.5rem 2rem;
-                background: linear-gradient(135deg, var(--brown), var(--brown-dark));
-                color: white;
-            }
-            header h1 {
-                font-size: 1.4rem;
+                position: relative;
                 display: flex;
                 align-items: center;
-                gap: 0.5rem;
+                gap: 0.9rem;
+                padding: 1.6rem 1.75rem 1.4rem;
+                border-bottom: 1px solid var(--line);
+            }
+            header::before {
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                height: 5px;
+                width: 100%;
+                background: var(--ink);
+                transform: scaleX(0);
+                transform-origin: left;
+                animation: draw-rule 0.7s ease-out 0.1s forwards;
+            }
+            @media (prefers-reduced-motion: reduce) {
+                header::before { animation: none; transform: scaleX(1); }
+            }
+            @keyframes draw-rule {
+                to { transform: scaleX(1); }
+            }
+            header img {
+                width: 46px;
+                height: 46px;
+                border-radius: var(--radius);
+                flex-shrink: 0;
+            }
+            header h1 {
+                font-family: "Archivo Narrow", sans-serif;
+                font-weight: 700;
+                font-size: 1.7rem;
+                letter-spacing: -0.01em;
             }
             header p {
+                margin-top: 0.2rem;
                 font-size: 0.85rem;
-                opacity: 0.85;
-                margin-top: 0.25rem;
+                color: var(--muted);
+                max-width: 42ch;
             }
-            #messages {
-                overflow-y: auto;
-                padding: 1.5rem 2rem;
-                display: flex;
-                flex-direction: column;
-                gap: 1.25rem;
-                min-height: 420px;
-                max-height: 60vh;
+
+            /* ---------- Intro card (rendered as the first entry inside
+               #messages, so it scrolls away with the rest of the
+               conversation instead of staying permanently pinned) ---------- */
+            .intro-card {
+                padding: 1.1rem 1.25rem;
+                border: 1px solid var(--line);
+                border-radius: var(--radius);
+                background: rgba(var(--shell-rgb), 0.08);
             }
-            #starters {
-                padding: 0 2rem 1.25rem;
-                display: flex;
-                flex-wrap: wrap;
-                gap: 0.5rem;
+            .intro-lede {
+                font-size: 0.88rem;
+                color: var(--muted);
+                margin-bottom: 0.85rem;
             }
-            .starter-chip {
-                font-size: 0.8rem;
-                padding: 0.5rem 0.9rem;
-                background: var(--cream);
-                border: 1px solid var(--border);
-                border-radius: 999px;
-                cursor: pointer;
-                color: var(--brown-dark);
+            .capability {
+                margin-bottom: 0.85rem;
             }
-            .starter-chip:hover {
-                background: var(--border);
+            .capability:last-of-type {
+                margin-bottom: 0;
             }
-            .msg {
-                line-height: 1.55;
-                max-width: 88%;
+            .cap-name {
+                font-family: "Archivo Narrow", sans-serif;
+                font-weight: 700;
                 font-size: 0.95rem;
             }
-            .msg.user {
-                align-self: flex-end;
-                text-align: right;
+            .cap-desc {
+                font-size: 0.86rem;
+                color: var(--muted);
+                margin-top: 0.1rem;
+            }
+            .intro-ask {
+                font-size: 0.88rem;
+                font-weight: 500;
+                margin-top: 1rem;
+            }
+
+            /* ---------- Suggested actions ---------- */
+            #starters {
+                padding: 1rem 1.75rem;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.55rem;
+            }
+            .chip {
+                font-family: "Archivo", sans-serif;
+                font-weight: 500;
+                font-size: 0.85rem;
+                padding: 0.55rem 0.95rem;
+                background: var(--paper);
+                border: 1px solid var(--line);
+                border-radius: var(--radius);
+                color: var(--ink);
+                cursor: pointer;
+            }
+            .chip:hover {
+                border-color: var(--shell);
+                background: rgba(var(--shell-rgb), 0.14);
+            }
+            .chip:focus-visible {
+                outline: 2px solid var(--shell);
+                outline-offset: 2px;
+            }
+
+            /* ---------- Message list ---------- */
+            /* flex: 1 + min-height: 0 lets this shrink to share space with its
+               fixed-size siblings inside #app's capped height, so it's the
+               only thing that scrolls -- header/starters/input/disclaimer
+               stay fully visible instead of being clipped by #app's overflow. */
+            #messages {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow-y: auto;
+                padding: 1rem 1.75rem;
+                display: flex;
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+            .msg {
+                max-width: 68ch;
+                padding: 0.55rem 0.85rem;
+                border-left: 2px solid var(--line);
+                border-radius: 0 var(--radius) var(--radius) 0;
+            }
+            .msg.assistant {
+                border-left-color: var(--shell);
+                background: rgba(var(--shell-rgb), 0.05);
             }
             .msg .role {
-                font-size: 0.7rem;
+                font-family: "Archivo Narrow", sans-serif;
+                font-weight: 700;
+                font-size: 0.68rem;
                 text-transform: uppercase;
-                letter-spacing: 0.06em;
+                letter-spacing: 0.04em;
                 color: var(--muted);
                 margin-bottom: 0.2rem;
             }
-            .msg .content p { margin: 0.4em 0; }
-            .msg .content ul, .msg .content ol { margin: 0.4em 0 0.4em 1.2em; }
-            .msg .content strong { color: var(--brown-dark); }
+            .msg .content p { margin: 0.45em 0; }
+            .msg .content p:first-child { margin-top: 0; }
+            .msg .content p:last-child { margin-bottom: 0; }
+            .msg .content ul, .msg .content ol { margin: 0.45em 0 0.45em 1.2em; }
+            .msg .content strong { font-weight: 600; }
             .msg.loading .content {
                 color: var(--muted);
                 font-style: italic;
             }
-            #input-area {
+
+            /* ---------- Input row ---------- */
+            #input-row {
                 display: flex;
-                gap: 0.75rem;
-                padding: 1.25rem 2rem;
-                border-top: 1px solid var(--border);
+                gap: 0.6rem;
+                padding: 1rem 1.75rem;
+                border-top: 1px solid var(--line);
             }
             #user-input {
                 flex: 1;
-                padding: 0.7rem 1rem;
-                border: 1px solid var(--border);
-                border-radius: 10px;
-                font-size: 0.95rem;
-                outline: none;
+                padding: 0.75rem 1rem;
+                border: 1px solid var(--line);
+                border-radius: var(--radius);
+                background: var(--paper);
+                color: var(--ink);
                 font-family: inherit;
+                font-size: 0.92rem;
             }
-            #user-input:focus {
-                border-color: var(--brown);
+            #user-input:focus-visible {
+                outline: none;
+                border-color: var(--shell);
+                box-shadow: 0 0 0 3px rgba(var(--shell-rgb), 0.18);
             }
-            button {
-                padding: 0.7rem 1.4rem;
-                background: var(--brown);
-                color: #fff;
-                border: none;
-                border-radius: 10px;
+            #send-btn {
+                font-family: "Archivo Narrow", sans-serif;
+                font-weight: 700;
                 font-size: 0.85rem;
-                font-weight: 600;
+                padding: 0.7rem 1.5rem;
+                background: var(--shell);
+                color: var(--ink);
+                border: 1px solid var(--shell);
+                border-radius: var(--radius);
                 cursor: pointer;
             }
-            button:hover { background: var(--brown-dark); }
-            button:disabled {
-                opacity: 0.4;
-                cursor: default;
+            #send-btn:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+            #send-btn:focus-visible { outline: 2px solid var(--shell); outline-offset: 2px; }
+            #send-btn:disabled { opacity: 0.4; cursor: default; }
+
+            /* ---------- Footer disclaimer ---------- */
+            #disclaimer {
+                display: flex;
+                align-items: baseline;
+                gap: 0.55rem;
+                padding: 0.7rem 1.75rem;
+                font-size: 0.72rem;
+                color: var(--muted);
+                background: rgba(var(--shell-rgb), 0.06);
+                border-top: 1px solid var(--line);
+            }
+            #disclaimer .mark {
+                flex-shrink: 0;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 1.1rem;
+                height: 1.1rem;
+                border: 1px solid var(--muted);
+                border-radius: 50%;
+                font-family: "Archivo Narrow", sans-serif;
+                font-weight: 700;
+                font-size: 0.65rem;
             }
 
-            /* Tool call cards */
+            /* ---------- Tool cards ---------- */
             .tool-card {
-                border: 1px solid var(--border);
-                border-radius: 10px;
-                overflow: hidden;
-                font-size: 0.85rem;
-                max-width: 92%;
+                max-width: 68ch;
+                border: 1px solid var(--line);
+                border-left: 3px solid var(--ink);
+                border-radius: 0 var(--radius) var(--radius) 0;
+                padding: 0.75rem 0.9rem;
             }
+            .tool-card.status-contains { border-left-color: var(--contains); }
             .tool-card .tool-head {
                 display: flex;
-                align-items: center;
+                flex-wrap: wrap;
+                align-items: baseline;
                 gap: 0.5rem;
-                padding: 0.55rem 0.85rem;
-                background: var(--cream);
-                border-bottom: 1px solid var(--border);
-                color: var(--brown-dark);
-                font-weight: 600;
+                padding-bottom: 0.45rem;
+                margin-bottom: 0.55rem;
+                border-bottom: 1px solid var(--line);
             }
-            .tool-card .tool-args {
-                font-weight: 400;
-                color: var(--muted);
-                font-family: ui-monospace, monospace;
-                font-size: 0.78rem;
-            }
-            .tool-card .tool-body {
-                padding: 0.7rem 0.85rem;
-                display: flex;
-                flex-direction: column;
-                gap: 0.5rem;
-            }
-            .tool-card .field-label {
+            .tool-head .tool-name {
+                font-family: "Archivo Narrow", sans-serif;
+                font-weight: 700;
                 font-size: 0.68rem;
                 text-transform: uppercase;
-                letter-spacing: 0.05em;
+                letter-spacing: 0.03em;
                 color: var(--muted);
-                margin-bottom: 0.15rem;
             }
-            .tool-card .field-value {
-                white-space: pre-wrap;
+            .tool-head .tool-target {
+                font-size: 0.82rem;
+                color: var(--ink);
             }
-            .tool-card ul {
-                margin: 0.2rem 0 0.2rem 1.1rem;
+            /* Status tags stay sharp-edged (no radius) -- deliberately more
+               "stamped/authoritative" than the rest of the warmer chrome,
+               since this is the one safety-critical signal in the UI. */
+            .status-tag {
+                font-family: "Archivo Narrow", sans-serif;
+                font-weight: 700;
+                font-size: 0.66rem;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                padding: 0.1rem 0.45rem;
+                border: 1px solid var(--ink);
             }
-            .status-pill {
-                display: inline-block;
-                font-size: 0.7rem;
-                font-weight: 600;
-                padding: 0.15rem 0.55rem;
-                border-radius: 999px;
-                margin-left: 0.4rem;
+            .status-tag.contains { background: var(--contains); color: var(--paper); border-color: var(--contains); }
+            .status-tag.not-listed { background: var(--paper); color: var(--ink); }
+            .status-tag.ask { background: var(--paper); color: var(--muted); border: 1px dashed var(--muted); }
+            .status-tag.error { background: var(--paper); color: var(--contains); border: 1px dashed var(--contains); }
+
+            .tool-body .field-value { margin-bottom: 0.5rem; }
+            .tool-body .field-value:last-child { margin-bottom: 0; }
+            .field-label {
+                font-family: "Archivo Narrow", sans-serif;
+                font-weight: 700;
+                font-size: 0.66rem;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                color: var(--muted);
+                margin: 0.6rem 0 0.2rem;
             }
-            .status-info { background: #e5eff3; color: var(--info); }
-            .status-warn { background: #fdf0dc; color: var(--warn); }
-            .status-danger { background: #fbe6e2; color: var(--danger); }
-            .warning-line {
-                color: var(--warn);
+            .tool-body ul {
+                list-style: none;
+            }
+            .tool-body li {
+                font-size: 0.88rem;
+                padding: 0.2rem 0;
+                border-bottom: 1px dotted var(--line);
+            }
+            .tool-body li:last-child { border-bottom: none; }
+            .suggestion-line {
                 font-size: 0.8rem;
+                color: var(--muted);
+                margin-top: 0.4rem;
             }
             .warning-compact {
                 font-size: 0.72rem;
-                opacity: 0.75;
-            }
-            #disclaimer {
-                padding: 0.5rem 2rem;
-                font-size: 0.72rem;
                 color: var(--muted);
-                background: var(--cream);
-                border-top: 1px solid var(--border);
-                text-align: center;
+                margin-top: 0.5rem;
             }
         </style>
     </head>
     <body>
-        <div id="container">
+        <div id="app">
             <header>
-                <h1>🥜 Peanut Patrol</h1>
-                <p>Your allergy-aware food assistant — check restaurant dishes, swap risky ingredients, and get travel allergy cards in any language.</p>
+                <img src="/peanutpatrol_img.png" alt="" />
+                <div>
+                    <h1>Peanut Patrol</h1>
+                    <p>A field guide for eating out and cooking with food allergies.</p>
+                </div>
             </header>
             <div id="messages"></div>
             <div id="starters">
-                <div class="starter-chip" data-q="I'm allergic to peanuts. Is the chicken bowl at Chipotle safe for me?">🍽️ Check a restaurant dish</div>
-                <div class="starter-chip" data-q="I'm allergic to dairy. What can I use instead of butter in chocolate chip cookies?">🔄 Substitute an ingredient</div>
-                <div class="starter-chip" data-q="I'm traveling to Mexico and I'm allergic to peanuts and tree nuts. Make me an allergy card in Spanish.">🌍 Get a travel allergy card</div>
+                <button class="chip" data-q="I want to check if a dish at a restaurant is safe for my allergies.">Check a dish</button>
+                <button class="chip" data-q="I want to find a substitute for an ingredient I'm allergic to in a recipe.">Find a substitute</button>
+                <button class="chip" data-q="I'm traveling soon and want an allergy card for my allergies.">Get a travel card</button>
             </div>
-            <div id="input-area">
+            <div id="input-row">
                 <input
                     type="text"
                     id="user-input"
-                    placeholder="Ask about a restaurant dish, a recipe swap, or travel allergies..."
+                    placeholder="Ask about a dish, a substitute, or a travel card"
                     autocomplete="off"
                 />
-                <button id="send-btn">Send</button>
+                <button id="send-btn">Ask</button>
             </div>
-            <div id="disclaimer">⚠️ Ingredient data doesn't guarantee absence of cross-contact. Always confirm with restaurant staff.</div>
+            <div id="disclaimer">
+                <span class="mark">!</span>
+                <span>Ingredient data doesn't guarantee absence of cross-contact. Always confirm with restaurant staff.</span>
+            </div>
         </div>
         <script>
             const messagesEl = document.getElementById("messages");
@@ -267,22 +406,22 @@
                 return d.innerHTML;
             }
 
-            const TOOL_META = {
-                search_restaurant_menu: { icon: "🍽️", label: "Restaurant Check" },
-                find_ingredient_substitute: { icon: "🔄", label: "Ingredient Substitute" },
-                generate_allergen_disclaimer: { icon: "🌍", label: "Travel Allergy Card" },
+            const TOOL_NAMES = {
+                search_restaurant_menu: "Menu Check",
+                find_ingredient_substitute: "Substitute",
+                generate_allergen_disclaimer: "Travel Card",
             };
 
-            function statusPill(result) {
-                if (result.error) return '<span class="status-pill status-danger">error</span>';
-                if (result.status === "likely_contains") return '<span class="status-pill status-danger">likely contains allergen</span>';
-                if (result.status === "not_found_in_ingredients") return '<span class="status-pill status-info">not in listed ingredients</span>';
-                if (result.status === "ask_restaurant") return '<span class="status-pill status-warn">ask restaurant</span>';
+            function statusTag(result) {
+                if (result.error) return '<span class="status-tag error">Error</span>';
+                if (result.status === "likely_contains") return '<span class="status-tag contains">Contains</span>';
+                if (result.status === "not_found_in_ingredients") return '<span class="status-tag not-listed">Not listed</span>';
+                if (result.status === "ask_restaurant") return '<span class="status-tag ask">Ask staff</span>';
                 return "";
             }
 
             function renderToolCard(call) {
-                const meta = TOOL_META[call.name] || { icon: "🛠️", label: call.name };
+                const toolName = TOOL_NAMES[call.name] || call.name;
                 let result;
                 try {
                     result = JSON.parse(call.result);
@@ -291,14 +430,15 @@
                 }
 
                 const card = document.createElement("div");
-                card.className = "tool-card";
+                card.className = "tool-card" + (result && result.status === "likely_contains" ? " status-contains" : "");
 
                 const head = document.createElement("div");
                 head.className = "tool-head";
+                const target = call.args.restaurant_name || call.args.allergenic_ingredient || call.args.target_language || "";
                 head.innerHTML =
-                    meta.icon + " " + meta.label +
-                    (result ? statusPill(result) : "") +
-                    '<span class="tool-args">(' + escapeHtml(JSON.stringify(call.args)) + ")</span>";
+                    '<span class="tool-name">' + escapeHtml(toolName) + "</span>" +
+                    (result ? statusTag(result) : "") +
+                    (target ? '<span class="tool-target">' + escapeHtml(target) + "</span>" : "");
                 card.appendChild(head);
 
                 const body = document.createElement("div");
@@ -308,8 +448,8 @@
                     body.innerHTML = '<div class="field-value">' + escapeHtml(call.result) + "</div>";
                 } else if (result.error) {
                     body.innerHTML =
-                        '<div class="field-value">❌ ' + escapeHtml(result.error) + "</div>" +
-                        (result.suggestion ? '<div class="warning-line">' + escapeHtml(result.suggestion) + "</div>" : "");
+                        '<div class="field-value">' + escapeHtml(result.error) + "</div>" +
+                        (result.suggestion ? '<div class="suggestion-line">' + escapeHtml(result.suggestion) + "</div>" : "");
                 } else {
                     // Lead with the headline (the direct answer), then supporting detail.
                     if (result.headline) {
@@ -348,14 +488,14 @@
                         body.innerHTML += html;
                     }
                     if (result.suggestion) {
-                        body.innerHTML += '<div class="warning-line">' + escapeHtml(result.suggestion) + "</div>";
+                        body.innerHTML += '<div class="suggestion-line">' + escapeHtml(result.suggestion) + "</div>";
                     }
                     // The full warning text is preserved here for transparency (and in the
                     // raw tool_calls JSON), just shown compactly -- the persistent footer
                     // disclaimer covers the everyday reminder so this doesn't repeat a large
                     // warning on every single message.
                     if (result.warning) {
-                        body.innerHTML += '<div class="warning-line warning-compact">' + escapeHtml(result.warning) + "</div>";
+                        body.innerHTML += '<div class="warning-compact">' + escapeHtml(result.warning) + "</div>";
                     }
                 }
 
@@ -403,19 +543,29 @@
                 if (e.key === "Enter") send();
             });
             startersEl.addEventListener("click", function (e) {
-                const chip = e.target.closest(".starter-chip");
+                const chip = e.target.closest(".chip");
                 if (chip) send(chip.dataset.q);
             });
 
-            addMessage(
-                "assistant",
-                "Hello! I'm Peanut Patrol, your allergy-aware food assistant.\n\n" +
-                "Here's how I can help:\n\n" +
-                "- **Check restaurant dishes** — tell me a restaurant and a dish, and I'll check if it's likely to contain an allergen.\n" +
-                "- **Find ingredient substitutes** — baking or cooking and need a safe swap for something? Just ask.\n" +
-                "- **Travel allergy cards** — heading somewhere English isn't spoken? I'll generate a translated allergy card to show restaurant staff.\n\n" +
-                "What food allergies do you have, and how can I help you today?",
-            );
+            // The intro lives inside #messages (not as a separate pinned
+            // section) so it scrolls away with the rest of the conversation
+            // like any other first message, instead of staying fixed in place.
+            function addIntroCard() {
+                const card = document.createElement("div");
+                card.className = "intro-card";
+                card.innerHTML =
+                    '<p class="intro-lede">Hi! I\'m a food allergy assistant. Tell me your allergies, and I can help with:</p>' +
+                    '<div class="capability"><div class="cap-name">Eating out?</div>' +
+                    '<div class="cap-desc">I can check a dish, or a whole menu, at a restaurant you name.</div></div>' +
+                    '<div class="capability"><div class="cap-name">Want to make a recipe allergen-free?</div>' +
+                    '<div class="cap-desc">I can swap an ingredient in a recipe for something safe to cook with.</div></div>' +
+                    '<div class="capability"><div class="cap-name">Upcoming travel plans?</div>' +
+                    '<div class="cap-desc">I can generate an allergy card and flag some of the top dishes to avoid wherever you\'re traveling, named in both English and the local language.</div></div>' +
+                    '<p class="intro-ask">What are your allergies, and what do you need?</p>';
+                messagesEl.appendChild(card);
+            }
+
+            addIntroCard();
             userInput.focus();
         </script>
     </body>
