@@ -11,6 +11,10 @@
             rel="stylesheet"
         />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+        />
         <style>
             * {
                 box-sizing: border-box;
@@ -165,6 +169,13 @@
                 border-radius: var(--radius);
                 color: var(--ink);
                 cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.45rem;
+            }
+            .chip i {
+                color: var(--ink);
+                font-size: 0.82em;
             }
             .chip:hover {
                 border-color: var(--shell);
@@ -370,9 +381,9 @@
             </header>
             <div id="messages"></div>
             <div id="starters">
-                <button class="chip" data-q="I want to check if a dish at a restaurant is safe for my allergies.">Check a dish</button>
-                <button class="chip" data-q="I want to find a substitute for an ingredient I'm allergic to in a recipe.">Find a substitute</button>
-                <button class="chip" data-q="I'm traveling soon and want an allergy card for my allergies.">Get a travel card</button>
+                <button class="chip" data-q="I want to check if a dish at a restaurant is safe for my allergies."><i class="fa-solid fa-utensils"></i>Check a dish</button>
+                <button class="chip" data-q="I want to find a substitute for an ingredient I'm allergic to in a recipe."><i class="fa-solid fa-right-left"></i>Find a substitute</button>
+                <button class="chip" data-q="I'm traveling soon and want an allergy card for my allergies."><i class="fa-solid fa-plane"></i>Get a travel card</button>
             </div>
             <div id="input-row">
                 <input
