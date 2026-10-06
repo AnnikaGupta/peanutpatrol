@@ -217,6 +217,87 @@ class TestChatToolLoop:
 
 
 # ============================================================================
+# _guarded_run_tool: deterministic check for a guessed target_language
+# ============================================================================
+#
+# Regression tests for a bug that survived several rounds of system-prompt-
+# only fixes: the model kept defaulting generate_allergen_disclaimer's
+# target_language to a guessed value (almost always "Spanish") when the user
+# never specified a destination, by its own admission once ("the tool
+# required a target language, so it defaulted to Spanish"). This enforces it
+# in code instead of relying on the model to follow the instruction.
+
+class TestGuardedTargetLanguage:
+    def test_unmentioned_language_is_rejected_without_calling_the_real_tool(self):
+        messages = [
+            {"role": "system", "content": "..."},
+            {"role": "user", "content": "I am allergic to shellfish and want a travel card"},
+        ]
+        with patch.object(app_module, "run_tool") as mock_run_tool:
+            result = json.loads(app_module._guarded_run_tool(
+                "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Spanish"}, messages,
+            ))
+        mock_run_tool.assert_not_called()
+        assert "error" in result
+        assert "Spanish" in result["error"]
+        assert "ask" in result["suggestion"].lower()
+
+    def test_mentioned_language_is_allowed_through(self):
+        messages = [{"role": "user", "content": "I am traveling to Thailand, allergic to shellfish"}]
+        with patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
+            result = app_module._guarded_run_tool(
+                "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Thai"}, messages,
+            )
+        mock_run_tool.assert_called_once()
+        assert result == '{"ok": true}'
+
+    def test_other_tools_are_not_checked(self):
+        messages = [{"role": "user", "content": "substitute for butter"}]
+        with patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
+            app_module._guarded_run_tool(
+                "find_ingredient_substitute", {"allergenic_ingredient": "butter"}, messages,
+            )
+        mock_run_tool.assert_called_once()
+
+    def test_assistant_mentioning_a_language_does_not_count_as_user_saying_it(self):
+        """Only the user's own words should ground the language -- not the
+        assistant's prior (possibly also-wrong) output."""
+        messages = [
+            {"role": "user", "content": "I am allergic to shellfish"},
+            {"role": "assistant", "content": "Here is your card in Spanish."},
+        ]
+        with patch.object(app_module, "run_tool") as mock_run_tool:
+            app_module._guarded_run_tool(
+                "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Spanish"}, messages,
+            )
+        mock_run_tool.assert_not_called()
+
+    def test_end_to_end_via_chat_never_shows_an_unfounded_card(self, client):
+        """Full /chat flow: the model guesses Spanish with no basis, the
+        guard intercepts before the real (mocked) tool runs, and the harness
+        loops to let the model ask instead."""
+        bad_call = make_tool_call("c1", "generate_allergen_disclaimer", {
+            "allergies": ["shellfish"], "target_language": "Spanish",
+        })
+        first_reply = make_message(content=None, tool_calls=[bad_call])
+        second_reply = make_message(content="Where are you traveling to?", tool_calls=None)
+
+        with patch.object(app_module.litellm, "completion", side_effect=[
+            make_completion(first_reply), make_completion(second_reply),
+        ]), patch.object(app_module, "run_tool") as mock_run_tool:
+            res = client.post("/chat", json={
+                "message": "I am allergic to shellfish and want a travel card",
+                "session_id": None,
+            })
+
+        mock_run_tool.assert_not_called()
+        body = res.json()
+        assert body["response"] == "Where are you traveling to?"
+        rejected = json.loads(body["tool_calls"][0]["result"])
+        assert "error" in rejected
+
+
+# ============================================================================
 # /chat: error handling
 # ============================================================================
 

@@ -76,7 +76,7 @@ def _grounded_json_call(prompt: str, max_retries: int = 1):
 # covers small independent restaurants (e.g. a specific NYC spot) that would
 # never appear in any recipe or chain database.
 
-def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str, location: str = "") -> str:
+def search_restaurant_menu(restaurant_name: str = "", dish_name: str = "", allergen: str = "", location: str = "") -> str:
     """Check whether a dish at a specific restaurant likely contains an allergen.
 
     Args:
@@ -88,6 +88,16 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str, 
 
     Returns: JSON with findings and an explicit confidence/source label
     """
+    # Defaults exist purely so an incomplete call (the model tried to avoid
+    # guessing by omitting a required field) fails gracefully here instead of
+    # crashing run_tool with a TypeError -- a clear, actionable result the
+    # model can act on in the same turn, not a dead end.
+    missing = [n for n, v in [("restaurant_name", restaurant_name), ("dish_name", dish_name), ("allergen", allergen)] if not v]
+    if missing:
+        return json.dumps({
+            "error": f"Missing required info: {', '.join(missing)}.",
+            "suggestion": f"Ask the user for {', '.join(missing)}, then call this tool again with those values."
+        })
     if not os.getenv("GOOGLE_CLOUD_PROJECT"):
         return json.dumps({
             "error": "GOOGLE_CLOUD_PROJECT not set in .env",
@@ -193,7 +203,7 @@ def search_restaurant_menu(restaurant_name: str, dish_name: str, allergen: str, 
 # Tool 2: find_ingredient_substitute
 # ============================================================================
 
-def find_ingredient_substitute(allergenic_ingredient: str, recipe_context: str = "") -> str:
+def find_ingredient_substitute(allergenic_ingredient: str = "", recipe_context: str = "") -> str:
     """Find safe substitutes for an allergenic ingredient in a recipe.
 
     Args:
@@ -202,6 +212,14 @@ def find_ingredient_substitute(allergenic_ingredient: str, recipe_context: str =
 
     Returns: JSON with substitution suggestions
     """
+    # Default exists purely so an incomplete call (the model tried to avoid
+    # guessing by omitting this) fails gracefully instead of crashing
+    # run_tool with a TypeError.
+    if not allergenic_ingredient:
+        return json.dumps({
+            "error": "No ingredient was specified.",
+            "suggestion": "Ask the user which ingredient they need to replace, then call this tool again with that value."
+        })
     try:
         sub_url = f"{SPOONACULAR_BASE}/food/ingredients/substitutes"
         params = {
@@ -297,7 +315,7 @@ def get_common_substitutes(ingredient: str) -> list:
 # as search_restaurant_menu: works for any language (not just 5), and the
 # cultural notes come from a web-grounded lookup instead of guesswork.
 
-def generate_allergen_disclaimer(allergies: list, target_language: str) -> str:
+def generate_allergen_disclaimer(allergies: list, target_language: str = "") -> str:
     """Generate a printable allergy card in any language, with cuisine-specific
     dishes/ingredients to watch for.
 
@@ -307,6 +325,15 @@ def generate_allergen_disclaimer(allergies: list, target_language: str) -> str:
 
     Returns: JSON with translated card text and cuisine-specific cultural notes
     """
+    # target_language has a default purely so an incomplete call (the model
+    # tried to avoid guessing by omitting it) fails gracefully here instead of
+    # crashing run_tool with a TypeError -- the model still gets a clear,
+    # actionable result it can act on in the same turn, rather than a dead end.
+    if not target_language:
+        return json.dumps({
+            "error": "No destination or language was specified.",
+            "suggestion": "Ask the user which language or destination they need the card for, then call this tool again with that value."
+        })
     if not os.getenv("GOOGLE_CLOUD_PROJECT"):
         return json.dumps({"error": "GOOGLE_CLOUD_PROJECT not set in .env"})
 

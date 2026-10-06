@@ -320,6 +320,58 @@ class TestGenerateAllergenDisclaimer:
 
 
 # ============================================================================
+# Graceful handling of incomplete tool calls
+# ============================================================================
+#
+# Regression tests for a real production crash: the model tried to avoid
+# guessing a required argument (per the "never guess" system prompt rules) by
+# omitting it entirely instead of asking the user first. A bare TypeError from
+# that wasn't caught by /chat's try/except (which only wraps run_agent()
+# itself, not response-model validation after it returns), so it surfaced to
+# the browser as a raw, non-JSON 500 page and broke the frontend's res.json()
+# parse. Each tool's "required" args now default to "" specifically so this
+# fails gracefully inside the tool instead.
+
+class TestGracefulMissingArgs:
+    def test_search_restaurant_menu_no_args_at_all(self):
+        result = json.loads(tools.search_restaurant_menu())
+        assert "error" in result
+        assert "restaurant_name" in result["error"]
+        assert "dish_name" in result["error"]
+        assert "allergen" in result["error"]
+
+    def test_search_restaurant_menu_partial_args(self):
+        result = json.loads(tools.search_restaurant_menu(restaurant_name="Chipotle"))
+        assert "dish_name" in result["error"]
+        assert "allergen" in result["error"]
+        assert "restaurant_name" not in result["error"]
+
+    def test_find_ingredient_substitute_no_args(self):
+        result = json.loads(tools.find_ingredient_substitute())
+        assert "error" in result
+        assert "ingredient" in result["error"].lower()
+
+    def test_generate_allergen_disclaimer_missing_target_language_only(self):
+        """The exact bug: allergies was provided, target_language was omitted
+        (not guessed) -- this must not raise, and must tell the model to ask."""
+        result = json.loads(tools.generate_allergen_disclaimer(allergies=["coconut"]))
+        assert "error" in result
+        assert "suggestion" in result
+        assert "ask" in result["suggestion"].lower()
+
+    def test_run_tool_never_raises_typeerror_for_these_cases(self):
+        """End-to-end through run_tool (what the harness actually calls) --
+        confirms no exception escapes, regardless of entry point."""
+        for name, args in [
+            ("search_restaurant_menu", {}),
+            ("find_ingredient_substitute", {}),
+            ("generate_allergen_disclaimer", {"allergies": ["shellfish"]}),
+        ]:
+            result = json.loads(tools.run_tool(name, args))
+            assert "error" in result
+
+
+# ============================================================================
 # run_tool (dispatch + error handling)
 # ============================================================================
 
@@ -330,7 +382,10 @@ class TestRunTool:
         assert "search_restaurant_menu" in result["error"]
 
     def test_missing_required_argument(self):
-        result = json.loads(tools.run_tool("find_ingredient_substitute", {}))
+        # generate_allergen_disclaimer's `allergies` has no default (unlike
+        # target_language, which does -- see TestGracefulMissingArgs below),
+        # so this is still a genuine TypeError path.
+        result = json.loads(tools.run_tool("generate_allergen_disclaimer", {"target_language": "Thai"}))
         assert "Bad arguments" in result["error"]
 
     def test_unexpected_keyword_argument(self):
