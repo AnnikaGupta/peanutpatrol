@@ -226,6 +226,14 @@ class TestChatToolLoop:
 # never specified a destination, by its own admission once ("the tool
 # required a target language, so it defaulted to Spanish"). This enforces it
 # in code instead of relying on the model to follow the instruction.
+#
+# The check deliberately only looks at the single message that triggered the
+# current request, not the whole conversation -- an earlier version scanned
+# all prior user text and broke on "Koo Thai" / "Thai red curry" (the word
+# "Thai" really was in the user's own words, just about a restaurant or a
+# recipe, not a destination -- see test_restaurant_or_recipe_name_does_not_
+# count_as_a_destination below). A destination isn't a standing fact like an
+# allergy; if it wasn't stated in this specific ask, confirm, never assume.
 
 class TestGuardedTargetLanguage:
     def test_unmentioned_language_is_rejected_without_calling_the_real_tool(self):
@@ -269,6 +277,43 @@ class TestGuardedTargetLanguage:
         with patch.object(app_module, "run_tool") as mock_run_tool:
             app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Spanish"}, messages,
+            )
+        mock_run_tool.assert_not_called()
+
+    def test_restaurant_or_recipe_name_does_not_count_as_a_destination(self):
+        """The actual bug found via live testing: the user said 'Koo Thai'
+        (a restaurant) and 'thai red curry' (a recipe) several turns earlier,
+        never a travel destination -- then asked for a travel card with no
+        destination in that ask. 'Thai' must not be treated as grounded just
+        because the word appears somewhere in the conversation."""
+        messages = [
+            {"role": "user", "content": "I am allergic to coconut and want to eat at Koo Thai"},
+            {"role": "assistant", "content": "..."},
+            {"role": "user", "content": "I want to make thai red curry at home"},
+            {"role": "assistant", "content": "..."},
+            {"role": "user", "content": "I'm traveling soon and want an allergy card for my allergies."},
+        ]
+        with patch.object(app_module, "run_tool") as mock_run_tool:
+            result = json.loads(app_module._guarded_run_tool(
+                "generate_allergen_disclaimer", {"allergies": ["coconut"], "target_language": "Thai"}, messages,
+            ))
+        mock_run_tool.assert_not_called()
+        assert "error" in result
+
+    def test_destination_stated_two_turns_ago_is_not_reused_without_restating(self):
+        """A real tradeoff, not an oversight: destination must be in the
+        CURRENT ask. This means a legitimate destination given a couple of
+        turns earlier and not repeated will also be asked again -- accepted
+        as the safer default, since over-confirming is far cheaper than
+        generating a wrong-language card."""
+        messages = [
+            {"role": "user", "content": "I am traveling to Thailand next month"},
+            {"role": "assistant", "content": "..."},
+            {"role": "user", "content": "Can you make me an allergy card?"},
+        ]
+        with patch.object(app_module, "run_tool") as mock_run_tool:
+            app_module._guarded_run_tool(
+                "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Thai"}, messages,
             )
         mock_run_tool.assert_not_called()
 

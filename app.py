@@ -125,8 +125,11 @@ MAX_TOOL_ROUNDS = 5
 # --- The Harness ---
 
 
-def _user_text(messages: list[dict]) -> str:
-    return " ".join(m.get("content") or "" for m in messages if m.get("role") == "user").lower()
+def _latest_user_message(messages: list[dict]) -> str:
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            return (m.get("content") or "").lower()
+    return ""
 
 
 def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
@@ -137,21 +140,23 @@ def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
     kept defaulting to a guessed language -- most often Spanish -- instead of
     asking, by its own admission ("the tool required a target language, so it
     defaulted to Spanish"). A prompt-only fix wasn't holding up reliably, so
-    this enforces it deterministically: refuse to run the real tool if the
-    supplied language doesn't appear anywhere in what the user actually
-    typed, and feed back an error the model can act on in the same turn.
+    this enforces it deterministically.
 
-    This does not catch a *correct-looking* word reused for the wrong purpose
-    (e.g. "Thai" genuinely said about a nearby restaurant, then reused as a
-    travel destination) -- that still relies on the system prompt's "Known
-    tricky cases" section. It reliably catches the more severe case: a
-    language with zero grounding in the user's own words.
+    Deliberately checks only the single message that triggered this request,
+    not the whole conversation -- an earlier version searched all prior user
+    text and broke on "Koo Thai" / "Thai red curry" (the word "Thai" really
+    was in the user's own words, just about a restaurant or a recipe, not a
+    destination). Unlike an allergy, a destination isn't a standing fact to
+    remember across turns -- if it wasn't stated in this specific ask, the
+    only correct move is to confirm, never assume from older, unrelated
+    context.
     """
     if name == "generate_allergen_disclaimer":
-        lang = (args.get("target_language") or "").strip()
-        if lang and lang.lower() not in _user_text(messages):
+        lang = (args.get("target_language") or "").strip().lower()
+        if lang and lang not in _latest_user_message(messages):
             return json.dumps({
-                "error": f"target_language '{lang}' was not mentioned anywhere by the user in this conversation.",
+                "error": f"target_language '{args.get('target_language')}' was not stated in the "
+                         f"user's current message.",
                 "suggestion": "Ask the user directly which language or destination they need -- do not call this tool again with a guessed value."
             })
     return run_tool(name, args)
