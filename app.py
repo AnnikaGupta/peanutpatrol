@@ -132,60 +132,87 @@ def _latest_user_message(messages: list[dict]) -> str:
     return ""
 
 
-def _language_grounded_in_message(target_language: str, user_message: str) -> bool:
-    """Narrow, single-purpose check: does this one message actually indicate
-    a destination/language matching target_language? A plain substring check
-    is too strict (rejects "I'm traveling to France" -> "French", since the
-    words share no text) and a hardcoded country->language table is too
-    brittle (misses cities, regions, multilingual countries, and needs
-    maintenance). A focused yes/no classification is a much smaller, less
-    ambiguous task than the main agent's job -- juggling 3 tools, memory
-    rules, response-style rules all at once -- so it's far more reliable
-    than trusting that model's own judgment here, while still handling any
-    phrasing through actual understanding instead of a lookup table.
+def _all_user_text(messages: list[dict]) -> str:
+    return "\n".join(m.get("content") or "" for m in messages if m.get("role") == "user")
+
+
+def _classifier_says_yes(question: str) -> bool:
+    """Shared narrow, single-purpose classifier call: ask one scoped yes/no
+    question and return whether the answer was yes. Used to verify a tool
+    argument is actually grounded in what the user said, rather than
+    guessed. A plain substring check is too strict (rejects "I'm traveling
+    to France" -> target_language="French", since the words share no text)
+    and a hardcoded lookup table is too brittle (misses cities, regions,
+    synonyms, needs maintenance). A focused yes/no classification is a much
+    smaller, less ambiguous task than the main agent's job -- juggling 3
+    tools, memory rules, response-style rules all at once -- so it's far
+    more reliable than trusting that model's own judgment here. Fails
+    closed (False) if the call itself errors, since a silent guess is worse
+    than one extra confirming question.
     """
-    if not user_message.strip():
-        return False
-    prompt = (
-        f"Message: \"{user_message}\"\n\n"
-        f"Does this message indicate the person wants something for the language/region "
-        f"'{target_language}' -- either naming that language directly, or naming a country, "
-        f"city, or region where it's spoken? Answer with ONLY the single word YES or NO."
-    )
     try:
         response = litellm.completion(
             model="vertex_ai/gemini-3.5-flash-lite",
             vertex_location="global",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": question}],
             temperature=0,
             timeout=10,
         )
         answer = (response.choices[0].message.content or "").strip().upper()
         return answer.startswith("YES")
     except Exception:
-        # If the classifier call itself fails, fail closed -- ungrounded
-        # rather than silently letting a possibly-guessed value through.
         return False
 
 
-def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
-    """Belt-and-suspenders check for generate_allergen_disclaimer's
-    target_language: despite several rounds of system-prompt guardrails
-    (removing a biased schema example, explicit "never guess" rules, a "no
-    placeholder results" framing, restructuring the whole prompt), the model
-    kept defaulting to a guessed language -- most often Spanish -- instead of
-    asking, by its own admission ("the tool required a target language, so it
-    defaulted to Spanish"). A prompt-only fix wasn't holding up reliably, so
-    this enforces it deterministically via _language_grounded_in_message.
+def _language_grounded_in_message(target_language: str, user_message: str) -> bool:
+    if not user_message.strip():
+        return False
+    return _classifier_says_yes(
+        f"Message: \"{user_message}\"\n\n"
+        f"Does this message indicate the person wants something for the language/region "
+        f"'{target_language}' -- either naming that language directly, or naming a country, "
+        f"city, or region where it's spoken? Answer with ONLY the single word YES or NO."
+    )
 
-    Deliberately checks only the single message that triggered this request,
-    not the whole conversation -- an earlier version searched all prior user
-    text and broke on "Koo Thai" / "Thai red curry" (the word "Thai" really
-    was in the user's own words, just about a restaurant or a recipe, not a
+
+def _ingredient_grounded_in_conversation(ingredient: str, conversation_text: str) -> bool:
+    if not conversation_text.strip():
+        return False
+    return _classifier_says_yes(
+        f"Conversation (the user's own messages, in order):\n\"{conversation_text}\"\n\n"
+        f"Has the user stated or clearly implied they are allergic to, or need to avoid, "
+        f"'{ingredient}' anywhere in this conversation? Naming a dish that commonly contains "
+        f"it does NOT count -- it must be a stated allergy/avoidance. Answer with ONLY the "
+        f"single word YES or NO."
+    )
+
+
+def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
+    """Belt-and-suspenders check for arguments the model has repeatedly
+    fabricated instead of asking for, despite several rounds of system-
+    prompt guardrails (removing biased schema examples, explicit "never
+    guess" rules, a "no placeholder results" framing, restructuring the
+    whole prompt). A prompt-only fix wasn't holding up reliably for either
+    case below, so both are enforced deterministically.
+
+    generate_allergen_disclaimer's target_language: the model kept
+    defaulting to a guessed language -- most often Spanish -- by its own
+    admission once ("the tool required a target language, so it defaulted
+    to Spanish"). Checks only the LATEST message, not the whole
+    conversation -- an earlier version searched all prior user text and
+    broke on "Koo Thai" / "Thai red curry" (the word "Thai" really was in
+    the user's own words, just about a restaurant or a recipe, not a
     destination). Unlike an allergy, a destination isn't a standing fact to
     remember across turns -- if it wasn't stated in this specific ask, the
-    only correct move is to confirm, never assume from older, unrelated
-    context.
+    only correct move is to confirm, never assume from older context.
+
+    find_ingredient_substitute's allergenic_ingredient: caught live
+    fabricating "peanut butter" for a user who named a dish (Thai red
+    curry) but had never stated any allergy at all in the conversation.
+    Checks the WHOLE conversation (unlike target_language) because an
+    allergy IS meant to be a standing fact remembered across turns, per the
+    system prompt's own memory rules -- it just still has to have actually
+    been stated somewhere, not inferred from a dish name alone.
     """
     if name == "generate_allergen_disclaimer":
         lang = (args.get("target_language") or "").strip()
@@ -193,6 +220,13 @@ def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
             return json.dumps({
                 "error": f"target_language '{lang}' was not stated in the user's current message.",
                 "suggestion": "Ask the user directly which language or destination they need -- do not call this tool again with a guessed value."
+            })
+    elif name == "find_ingredient_substitute":
+        ingredient = (args.get("allergenic_ingredient") or "").strip()
+        if ingredient and not _ingredient_grounded_in_conversation(ingredient, _all_user_text(messages)):
+            return json.dumps({
+                "error": f"'{ingredient}' was not stated by the user as an allergy or something to avoid.",
+                "suggestion": "Ask the user directly what ingredient or allergen they need to avoid -- do not call this tool again with a guessed value."
             })
     return run_tool(name, args)
 

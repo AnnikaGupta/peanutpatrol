@@ -151,10 +151,16 @@ class TestChatToolLoop:
         first_reply = make_message(content=None, tool_calls=[tool_call])
         second_reply = make_message(content="Use olive oil instead.", tool_calls=None)
 
+        # find_ingredient_substitute is guarded (see TestGuardedTargetLanguage's
+        # sibling tests for that logic specifically) -- a classifier call sits
+        # between the two orchestrator calls, mocked here to say YES so this
+        # test can focus on the general tool-call recording flow.
         with patch.object(app_module.litellm, "completion", side_effect=[
-            make_completion(first_reply), make_completion(second_reply),
+            make_completion(first_reply), make_classifier_response("YES"), make_completion(second_reply),
         ]):
-            res = client.post("/chat", json={"message": "substitute for butter?", "session_id": None})
+            res = client.post("/chat", json={
+                "message": "I'm allergic to butter, what's a substitute?", "session_id": None,
+            })
 
         body = res.json()
         assert body["response"] == "Use olive oil instead."
@@ -176,7 +182,11 @@ class TestChatToolLoop:
         assert mock_completion.call_count == 1
 
     def test_hits_max_tool_rounds_returns_limit_message(self, client):
-        tool_call = make_tool_call("call_x", "find_ingredient_substitute", {"allergenic_ingredient": "eggs"})
+        # An unknown tool name is unguarded AND resolved entirely inside
+        # run_tool with no external calls (see test_unknown_tool_name in
+        # test_tools.py) -- this test is about the harness's round-limit
+        # mechanics, not any real tool's behavior or guard.
+        tool_call = make_tool_call("call_x", "not_a_real_tool", {"whatever": "eggs"})
         always_calls_tool = make_message(content=None, tool_calls=[tool_call])
 
         with patch.object(app_module.litellm, "completion", return_value=make_completion(always_calls_tool)) as mock_completion:
@@ -188,8 +198,10 @@ class TestChatToolLoop:
         assert len(body["tool_calls"]) == app_module.MAX_TOOL_ROUNDS
 
     def test_multiple_tool_calls_in_one_round(self, client):
-        call1 = make_tool_call("c1", "find_ingredient_substitute", {"allergenic_ingredient": "butter"})
-        call2 = make_tool_call("c2", "find_ingredient_substitute", {"allergenic_ingredient": "eggs"})
+        # Unknown tool names so this focuses purely on "are both calls
+        # recorded", with no guard or real external call involved.
+        call1 = make_tool_call("c1", "not_a_real_tool_a", {"allergenic_ingredient": "butter"})
+        call2 = make_tool_call("c2", "not_a_real_tool_b", {"allergenic_ingredient": "eggs"})
         first_reply = make_message(content=None, tool_calls=[call1, call2])
         second_reply = make_message(content="Here are both substitutes.", tool_calls=None)
 
@@ -286,13 +298,16 @@ class TestGuardedTargetLanguage:
         assert result == '{"ok": true}'
 
     def test_other_tools_are_not_checked(self):
-        messages = [{"role": "user", "content": "substitute for butter"}]
+        # search_restaurant_menu is the one tool with no guard -- confirms
+        # the classifier is only invoked for the two tools known to have
+        # fabricated arguments live (target_language, allergenic_ingredient).
+        messages = [{"role": "user", "content": "check a dish"}]
         with patch.object(app_module.litellm, "completion") as mock_completion, \
              patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
             app_module._guarded_run_tool(
-                "find_ingredient_substitute", {"allergenic_ingredient": "butter"}, messages,
+                "search_restaurant_menu", {"restaurant_name": "X", "dish_name": "Y", "allergen": "Z"}, messages,
             )
-        mock_completion.assert_not_called()  # no classifier call for tools other than the disclaimer
+        mock_completion.assert_not_called()
         mock_run_tool.assert_called_once()
 
     def test_assistant_mentioning_a_language_does_not_count_as_user_saying_it(self):
@@ -372,6 +387,80 @@ class TestGuardedTargetLanguage:
         assert body["response"] == "Where are you traveling to?"
         rejected = json.loads(body["tool_calls"][0]["result"])
         assert "error" in rejected
+
+
+# ============================================================================
+# _guarded_run_tool: narrow-classifier check for a fabricated allergen
+# ============================================================================
+#
+# Regression tests for a live bug: the user said only "I want to find a
+# substitute for an ingredient I'm allergic to" then "i want to make thai
+# red curry" (naming a DISH, not an allergen) -- the model called
+# find_ingredient_substitute with allergenic_ingredient="peanut butter",
+# fabricated from nothing. The user had to point out "i havent said my
+# allergy" before the model backtracked. Unlike target_language, this check
+# scans the WHOLE conversation (allergies are meant to be remembered across
+# turns per the system prompt), not just the latest message.
+
+class TestGuardedAllergenicIngredient:
+    def test_fabricated_ingredient_with_zero_allergy_mentioned_is_rejected(self):
+        """The exact live bug: a dish was named, no allergy ever stated."""
+        messages = [
+            {"role": "user", "content": "I want to find a substitute for an ingredient I'm allergic to in a recipe."},
+            {"role": "assistant", "content": "What ingredient are you trying to replace, and what are you making?"},
+            {"role": "user", "content": "i want to make thai red curry"},
+        ]
+        with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("NO")), \
+             patch.object(app_module, "run_tool") as mock_run_tool:
+            result = json.loads(app_module._guarded_run_tool(
+                "find_ingredient_substitute", {"allergenic_ingredient": "peanut butter"}, messages,
+            ))
+        mock_run_tool.assert_not_called()
+        assert "error" in result
+        assert "peanut butter" in result["error"]
+        assert "ask" in result["suggestion"].lower()
+
+    def test_ingredient_stated_as_allergy_is_allowed_through(self):
+        messages = [{"role": "user", "content": "I'm allergic to peanut butter, need a substitute for cookies"}]
+        with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("YES")), \
+             patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
+            result = app_module._guarded_run_tool(
+                "find_ingredient_substitute", {"allergenic_ingredient": "peanut butter"}, messages,
+            )
+        mock_run_tool.assert_called_once()
+        assert result == '{"ok": true}'
+
+    def test_allergy_stated_several_turns_earlier_is_still_grounded(self):
+        """Unlike target_language, this checks the WHOLE conversation --
+        an allergy is a standing fact, unlike a transient destination."""
+        messages = [
+            {"role": "user", "content": "I'm allergic to peanut butter"},
+            {"role": "assistant", "content": "Got it, noted."},
+            {"role": "user", "content": "I want to make thai red curry"},
+        ]
+        with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("YES")) as mock_completion, \
+             patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
+            app_module._guarded_run_tool(
+                "find_ingredient_substitute", {"allergenic_ingredient": "peanut butter"}, messages,
+            )
+        mock_run_tool.assert_called_once()
+        # Confirms the classifier prompt included the full conversation, not
+        # just the latest message (which only mentions the dish).
+        sent_prompt = mock_completion.call_args.kwargs["messages"][0]["content"]
+        assert "peanut butter" in sent_prompt
+
+    def test_naming_a_dish_that_commonly_contains_an_allergen_is_not_enough(self):
+        """The prompt explicitly tells the classifier that naming a dish
+        does not itself count as stating an allergy -- confirms the mocked
+        NO path still blocks even when a dish strongly implies an allergen."""
+        messages = [{"role": "user", "content": "I want to make pad thai"}]
+        with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("NO")), \
+             patch.object(app_module, "run_tool") as mock_run_tool:
+            result = json.loads(app_module._guarded_run_tool(
+                "find_ingredient_substitute", {"allergenic_ingredient": "peanuts"}, messages,
+            ))
+        mock_run_tool.assert_not_called()
+        assert "error" in result
 
 
 # ============================================================================
