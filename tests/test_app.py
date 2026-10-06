@@ -217,23 +217,35 @@ class TestChatToolLoop:
 
 
 # ============================================================================
-# _guarded_run_tool: deterministic check for a guessed target_language
+# _guarded_run_tool: narrow-classifier check for a guessed target_language
 # ============================================================================
 #
 # Regression tests for a bug that survived several rounds of system-prompt-
 # only fixes: the model kept defaulting generate_allergen_disclaimer's
 # target_language to a guessed value (almost always "Spanish") when the user
 # never specified a destination, by its own admission once ("the tool
-# required a target language, so it defaulted to Spanish"). This enforces it
-# in code instead of relying on the model to follow the instruction.
+# required a target language, so it defaulted to Spanish").
 #
-# The check deliberately only looks at the single message that triggered the
-# current request, not the whole conversation -- an earlier version scanned
-# all prior user text and broke on "Koo Thai" / "Thai red curry" (the word
-# "Thai" really was in the user's own words, just about a restaurant or a
-# recipe, not a destination -- see test_restaurant_or_recipe_name_does_not_
-# count_as_a_destination below). A destination isn't a standing fact like an
-# allergy; if it wasn't stated in this specific ask, confirm, never assume.
+# Two string-matching versions were tried and both broke on real cases:
+# checking the whole conversation caught "Spanish" but also rejected nothing
+# (false negative on reuse: "Koo Thai" / "thai red curry" wrongly grounded
+# "Thai" as a destination); checking only the latest message fixed that but
+# then rejected "I'm traveling to France" -> target_language="French" (true
+# country-to-language inference, just no shared text) -- which pushed the
+# model to abandon the tool after two rejections and write an ungrounded
+# card from memory, worse than the bug being fixed. The actual fix is a
+# narrow LLM classifier (_language_grounded_in_message) whose only job is
+# "does this message indicate this language/region" -- real understanding,
+# not a lookup table, and a small enough task to be reliable even though the
+# main orchestrator (juggling 3 tools and a dozen rules) isn't.
+
+def make_classifier_response(answer: str):
+    msg = MagicMock()
+    msg.content = answer
+    resp = MagicMock()
+    resp.choices = [MagicMock(message=msg)]
+    return resp
+
 
 class TestGuardedTargetLanguage:
     def test_unmentioned_language_is_rejected_without_calling_the_real_tool(self):
@@ -241,7 +253,8 @@ class TestGuardedTargetLanguage:
             {"role": "system", "content": "..."},
             {"role": "user", "content": "I am allergic to shellfish and want a travel card"},
         ]
-        with patch.object(app_module, "run_tool") as mock_run_tool:
+        with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("NO")), \
+             patch.object(app_module, "run_tool") as mock_run_tool:
             result = json.loads(app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Spanish"}, messages,
             ))
@@ -252,40 +265,58 @@ class TestGuardedTargetLanguage:
 
     def test_mentioned_language_is_allowed_through(self):
         messages = [{"role": "user", "content": "I am traveling to Thailand, allergic to shellfish"}]
-        with patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
+        with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("YES")), \
+             patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
             result = app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Thai"}, messages,
             )
         mock_run_tool.assert_called_once()
         assert result == '{"ok": true}'
 
+    def test_country_name_grounds_a_differently_spelled_language(self):
+        """The actual France/French bug: the words share no text, but the
+        classifier should still recognize the country implies the language."""
+        messages = [{"role": "user", "content": "im travelling to france"}]
+        with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("YES")), \
+             patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
+            result = app_module._guarded_run_tool(
+                "generate_allergen_disclaimer", {"allergies": ["coconut"], "target_language": "French"}, messages,
+            )
+        mock_run_tool.assert_called_once()
+        assert result == '{"ok": true}'
+
     def test_other_tools_are_not_checked(self):
         messages = [{"role": "user", "content": "substitute for butter"}]
-        with patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
+        with patch.object(app_module.litellm, "completion") as mock_completion, \
+             patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
             app_module._guarded_run_tool(
                 "find_ingredient_substitute", {"allergenic_ingredient": "butter"}, messages,
             )
+        mock_completion.assert_not_called()  # no classifier call for tools other than the disclaimer
         mock_run_tool.assert_called_once()
 
     def test_assistant_mentioning_a_language_does_not_count_as_user_saying_it(self):
         """Only the user's own words should ground the language -- not the
-        assistant's prior (possibly also-wrong) output."""
+        assistant's prior (possibly also-wrong) output. _latest_user_message
+        only looks at role == "user", so the classifier never even sees the
+        assistant's text here."""
         messages = [
             {"role": "user", "content": "I am allergic to shellfish"},
             {"role": "assistant", "content": "Here is your card in Spanish."},
         ]
-        with patch.object(app_module, "run_tool") as mock_run_tool:
+        with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("NO")), \
+             patch.object(app_module, "run_tool") as mock_run_tool:
             app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Spanish"}, messages,
             )
         mock_run_tool.assert_not_called()
 
     def test_restaurant_or_recipe_name_does_not_count_as_a_destination(self):
-        """The actual bug found via live testing: the user said 'Koo Thai'
-        (a restaurant) and 'thai red curry' (a recipe) several turns earlier,
-        never a travel destination -- then asked for a travel card with no
-        destination in that ask. 'Thai' must not be treated as grounded just
-        because the word appears somewhere in the conversation."""
+        """The Koo Thai bug: the user said 'Koo Thai' (a restaurant) and
+        'thai red curry' (a recipe) several turns earlier, never a travel
+        destination -- then asked for a travel card with no destination in
+        that ask. The classifier only ever sees the LATEST user message, so
+        it has no way to wrongly ground this even if asked."""
         messages = [
             {"role": "user", "content": "I am allergic to coconut and want to eat at Koo Thai"},
             {"role": "assistant", "content": "..."},
@@ -293,34 +324,35 @@ class TestGuardedTargetLanguage:
             {"role": "assistant", "content": "..."},
             {"role": "user", "content": "I'm traveling soon and want an allergy card for my allergies."},
         ]
-        with patch.object(app_module, "run_tool") as mock_run_tool:
+        with patch.object(app_module.litellm, "completion") as mock_completion, \
+             patch.object(app_module, "run_tool") as mock_run_tool:
+            mock_completion.return_value = make_classifier_response("NO")
             result = json.loads(app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["coconut"], "target_language": "Thai"}, messages,
+            ))
+        # Confirms only the latest message reached the classifier prompt.
+        sent_prompt = mock_completion.call_args.kwargs["messages"][0]["content"]
+        assert "Koo Thai" not in sent_prompt
+        assert "thai red curry" not in sent_prompt
+        mock_run_tool.assert_not_called()
+        assert "error" in result
+
+    def test_classifier_failure_fails_closed(self):
+        """If the classifier call itself errors (network, quota, etc.), the
+        guard must not silently let a possibly-guessed language through."""
+        messages = [{"role": "user", "content": "I am traveling to Thailand"}]
+        with patch.object(app_module.litellm, "completion", side_effect=RuntimeError("down")), \
+             patch.object(app_module, "run_tool") as mock_run_tool:
+            result = json.loads(app_module._guarded_run_tool(
+                "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Thai"}, messages,
             ))
         mock_run_tool.assert_not_called()
         assert "error" in result
 
-    def test_destination_stated_two_turns_ago_is_not_reused_without_restating(self):
-        """A real tradeoff, not an oversight: destination must be in the
-        CURRENT ask. This means a legitimate destination given a couple of
-        turns earlier and not repeated will also be asked again -- accepted
-        as the safer default, since over-confirming is far cheaper than
-        generating a wrong-language card."""
-        messages = [
-            {"role": "user", "content": "I am traveling to Thailand next month"},
-            {"role": "assistant", "content": "..."},
-            {"role": "user", "content": "Can you make me an allergy card?"},
-        ]
-        with patch.object(app_module, "run_tool") as mock_run_tool:
-            app_module._guarded_run_tool(
-                "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Thai"}, messages,
-            )
-        mock_run_tool.assert_not_called()
-
     def test_end_to_end_via_chat_never_shows_an_unfounded_card(self, client):
         """Full /chat flow: the model guesses Spanish with no basis, the
-        guard intercepts before the real (mocked) tool runs, and the harness
-        loops to let the model ask instead."""
+        classifier says NO, the guard intercepts before the real (mocked)
+        tool runs, and the harness loops to let the model ask instead."""
         bad_call = make_tool_call("c1", "generate_allergen_disclaimer", {
             "allergies": ["shellfish"], "target_language": "Spanish",
         })
@@ -328,7 +360,7 @@ class TestGuardedTargetLanguage:
         second_reply = make_message(content="Where are you traveling to?", tool_calls=None)
 
         with patch.object(app_module.litellm, "completion", side_effect=[
-            make_completion(first_reply), make_completion(second_reply),
+            make_completion(first_reply), make_classifier_response("NO"), make_completion(second_reply),
         ]), patch.object(app_module, "run_tool") as mock_run_tool:
             res = client.post("/chat", json={
                 "message": "I am allergic to shellfish and want a travel card",

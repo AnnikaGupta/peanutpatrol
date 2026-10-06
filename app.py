@@ -128,8 +128,44 @@ MAX_TOOL_ROUNDS = 5
 def _latest_user_message(messages: list[dict]) -> str:
     for m in reversed(messages):
         if m.get("role") == "user":
-            return (m.get("content") or "").lower()
+            return m.get("content") or ""
     return ""
+
+
+def _language_grounded_in_message(target_language: str, user_message: str) -> bool:
+    """Narrow, single-purpose check: does this one message actually indicate
+    a destination/language matching target_language? A plain substring check
+    is too strict (rejects "I'm traveling to France" -> "French", since the
+    words share no text) and a hardcoded country->language table is too
+    brittle (misses cities, regions, multilingual countries, and needs
+    maintenance). A focused yes/no classification is a much smaller, less
+    ambiguous task than the main agent's job -- juggling 3 tools, memory
+    rules, response-style rules all at once -- so it's far more reliable
+    than trusting that model's own judgment here, while still handling any
+    phrasing through actual understanding instead of a lookup table.
+    """
+    if not user_message.strip():
+        return False
+    prompt = (
+        f"Message: \"{user_message}\"\n\n"
+        f"Does this message indicate the person wants something for the language/region "
+        f"'{target_language}' -- either naming that language directly, or naming a country, "
+        f"city, or region where it's spoken? Answer with ONLY the single word YES or NO."
+    )
+    try:
+        response = litellm.completion(
+            model="vertex_ai/gemini-3.5-flash-lite",
+            vertex_location="global",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            timeout=10,
+        )
+        answer = (response.choices[0].message.content or "").strip().upper()
+        return answer.startswith("YES")
+    except Exception:
+        # If the classifier call itself fails, fail closed -- ungrounded
+        # rather than silently letting a possibly-guessed value through.
+        return False
 
 
 def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
@@ -140,7 +176,7 @@ def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
     kept defaulting to a guessed language -- most often Spanish -- instead of
     asking, by its own admission ("the tool required a target language, so it
     defaulted to Spanish"). A prompt-only fix wasn't holding up reliably, so
-    this enforces it deterministically.
+    this enforces it deterministically via _language_grounded_in_message.
 
     Deliberately checks only the single message that triggered this request,
     not the whole conversation -- an earlier version searched all prior user
@@ -152,11 +188,10 @@ def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
     context.
     """
     if name == "generate_allergen_disclaimer":
-        lang = (args.get("target_language") or "").strip().lower()
-        if lang and lang not in _latest_user_message(messages):
+        lang = (args.get("target_language") or "").strip()
+        if lang and not _language_grounded_in_message(lang, _latest_user_message(messages)):
             return json.dumps({
-                "error": f"target_language '{args.get('target_language')}' was not stated in the "
-                         f"user's current message.",
+                "error": f"target_language '{lang}' was not stated in the user's current message.",
                 "suggestion": "Ask the user directly which language or destination they need -- do not call this tool again with a guessed value."
             })
     return run_tool(name, args)
