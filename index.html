@@ -404,14 +404,6 @@
                 font-family: "Manrope", sans-serif;
                 color: var(--ink);
             }
-            .printable-card .pc-brand {
-                font-weight: 800;
-                font-size: 0.75rem;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                color: var(--muted);
-                margin-bottom: 0.3rem;
-            }
             .printable-card .pc-title {
                 font-weight: 800;
                 font-size: 1.3rem;
@@ -651,7 +643,6 @@
                     const allergiesText = (result.allergies || []).join(", ");
                     container.innerHTML =
                         '<div class="printable-card">' +
-                        '<div class="pc-brand">Peanut Patrol</div>' +
                         '<div class="pc-title">Allergy Card</div>' +
                         '<div class="pc-language">' + escapeHtml(result.language || "") + "</div>" +
                         '<div class="pc-text">' + escapeHtml(result.translated_card || "") + "</div>" +
