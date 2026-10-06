@@ -1,21 +1,23 @@
-# gemini-web-tool-calling
+# Peanut Patrol
 
-`qwen-tool-calling` behind a web server, pointed at Gemini.
+Allergy-aware food assistant
 
-- The harness loop is the same one from `qwen-tool-calling`, wrapped in `run_agent()`.
-- The session store and `/chat` endpoint are the ones from `qwen-web-chat`.
-- Only the model changed: `vertex_ai/gemini-3.5-flash-lite` in the `global` location.
-- `/chat` also returns the tool calls the harness made, and the page shows them
-  above the assistant's answer.
+**Live app:** https://peanutpatrol-git-387773877374.europe-west1.run.app
 
-## Setup
+Welcome to Peanut Patrol, your allergy-aware food assistant.
 
-1. A GCP project with billing and the Agent Platform API enabled
-   (older docs and the endpoint itself still call it Vertex AI)
-2. `gcloud auth application-default login`. The app uses your gcloud default
-   project, so run `gemini-hello-world` first to check it.
-3. `uv run app.py`, then open http://localhost:8000
+Ordering out? You can cross-check a restaurant's menu for allergen-safe dishes, and dishes to
+strictly avoid!
 
-Try: "Is it nice enough to go for a walk in New York?"
+Cooking/Baking? Swap an unsafe ingredient for a safe one using the Spoonacular API, and find
+substitutes for popular recipes.
 
-The weather comes from Open-Meteo, which needs no API key.
+Travelling? Communicating a moderate to severe life-threatening allergy anywhere with a
+language barrier is always a challenge — specify your travel destination and generate an
+allergy card to bring with you to your destination.
+
+## Sample Queries
+
+1. I'm allergic to coconut, and I want to order from Koo Thai in the Upper West Side.
+2. I'm allergic to shellfish and I want to make crab rangoons.
+3. I'm traveling to China and I'm allergic to peanuts.
