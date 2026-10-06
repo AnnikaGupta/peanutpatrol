@@ -190,7 +190,7 @@ def _ingredient_grounded_in_conversation(ingredient: str, conversation_text: str
     )
 
 
-def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
+def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> tuple[str, bool]:
     """Belt-and-suspenders check for arguments the model has repeatedly
     fabricated instead of asking for, despite several rounds of system-
     prompt guardrails (removing biased schema examples, explicit "never
@@ -216,6 +216,14 @@ def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
     allergy IS meant to be a standing fact remembered across turns, per the
     system prompt's own memory rules -- it just still has to have actually
     been stated somewhere, not inferred from a dish name alone.
+
+    Returns (result, was_rejected_by_guard). The second value lets the
+    caller feed the rejection back to the model (so it still self-corrects
+    in the same turn) without surfacing it in the user-facing tool_calls
+    list -- a rejected guess is the agent catching its own mistake before
+    it ever reaches the user, not a real tool call or a genuine failure
+    like a network error, and showing it as an "Error" card reads as
+    something broke rather than a safety check working as intended.
     """
     if name == "generate_allergen_disclaimer":
         lang = (args.get("target_language") or "").strip()
@@ -223,15 +231,15 @@ def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> str:
             return json.dumps({
                 "error": f"target_language '{lang}' was not stated in the user's current message.",
                 "suggestion": "Ask the user directly which language or destination they need -- do not call this tool again with a guessed value."
-            })
+            }), True
     elif name == "find_ingredient_substitute":
         ingredient = (args.get("allergenic_ingredient") or "").strip()
         if ingredient and not _ingredient_grounded_in_conversation(ingredient, _all_user_text(messages)):
             return json.dumps({
                 "error": f"'{ingredient}' was not stated by the user as an allergy or something to avoid.",
                 "suggestion": "Ask the user directly what ingredient or allergen they need to avoid -- do not call this tool again with a guessed value."
-            })
-    return run_tool(name, args)
+            }), True
+    return run_tool(name, args), False
 
 
 def run_agent(messages: list[dict]) -> tuple[str, list[dict]]:
@@ -272,8 +280,13 @@ def run_agent(messages: list[dict]) -> tuple[str, list[dict]]:
         # The harness, not the model, runs each tool and appends the result
         for call in reply.tool_calls:
             args = json.loads(call.function.arguments)
-            result = _guarded_run_tool(call.function.name, args, messages)
-            tool_calls += [{"name": call.function.name, "args": args, "result": result}]
+            result, rejected_by_guard = _guarded_run_tool(call.function.name, args, messages)
+            # A guard rejection is the model's own guess caught before it ever
+            # reached the user -- fed back into messages below so the model
+            # can self-correct in the same turn, but left out of tool_calls so
+            # it never shows up as a user-facing "Error" card.
+            if not rejected_by_guard:
+                tool_calls += [{"name": call.function.name, "args": args, "result": result}]
 
             messages += [{"role": "tool", "tool_call_id": call.id, "content": result}]
 

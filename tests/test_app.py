@@ -267,10 +267,12 @@ class TestGuardedTargetLanguage:
         ]
         with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("NO")), \
              patch.object(app_module, "run_tool") as mock_run_tool:
-            result = json.loads(app_module._guarded_run_tool(
+            result, rejected = app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Spanish"}, messages,
-            ))
+            )
+            result = json.loads(result)
         mock_run_tool.assert_not_called()
+        assert rejected is True
         assert "error" in result
         assert "Spanish" in result["error"]
         assert "ask" in result["suggestion"].lower()
@@ -279,11 +281,12 @@ class TestGuardedTargetLanguage:
         messages = [{"role": "user", "content": "I am traveling to Thailand, allergic to shellfish"}]
         with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("YES")), \
              patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
-            result = app_module._guarded_run_tool(
+            result, rejected = app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Thai"}, messages,
             )
         mock_run_tool.assert_called_once()
         assert result == '{"ok": true}'
+        assert rejected is False
 
     def test_country_name_grounds_a_differently_spelled_language(self):
         """The actual France/French bug: the words share no text, but the
@@ -291,11 +294,12 @@ class TestGuardedTargetLanguage:
         messages = [{"role": "user", "content": "im travelling to france"}]
         with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("YES")), \
              patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
-            result = app_module._guarded_run_tool(
+            result, rejected = app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["coconut"], "target_language": "French"}, messages,
             )
         mock_run_tool.assert_called_once()
         assert result == '{"ok": true}'
+        assert rejected is False
 
     def test_other_tools_are_not_checked(self):
         # search_restaurant_menu is the one tool with no guard -- confirms
@@ -304,11 +308,12 @@ class TestGuardedTargetLanguage:
         messages = [{"role": "user", "content": "check a dish"}]
         with patch.object(app_module.litellm, "completion") as mock_completion, \
              patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
-            app_module._guarded_run_tool(
+            result, rejected = app_module._guarded_run_tool(
                 "search_restaurant_menu", {"restaurant_name": "X", "dish_name": "Y", "allergen": "Z"}, messages,
             )
         mock_completion.assert_not_called()
         mock_run_tool.assert_called_once()
+        assert rejected is False
 
     def test_assistant_mentioning_a_language_does_not_count_as_user_saying_it(self):
         """Only the user's own words should ground the language -- not the
@@ -321,10 +326,11 @@ class TestGuardedTargetLanguage:
         ]
         with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("NO")), \
              patch.object(app_module, "run_tool") as mock_run_tool:
-            app_module._guarded_run_tool(
+            _, rejected = app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Spanish"}, messages,
             )
         mock_run_tool.assert_not_called()
+        assert rejected is True
 
     def test_restaurant_or_recipe_name_does_not_count_as_a_destination(self):
         """The Koo Thai bug: the user said 'Koo Thai' (a restaurant) and
@@ -342,14 +348,16 @@ class TestGuardedTargetLanguage:
         with patch.object(app_module.litellm, "completion") as mock_completion, \
              patch.object(app_module, "run_tool") as mock_run_tool:
             mock_completion.return_value = make_classifier_response("NO")
-            result = json.loads(app_module._guarded_run_tool(
+            result, rejected = app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["coconut"], "target_language": "Thai"}, messages,
-            ))
+            )
+            result = json.loads(result)
         # Confirms only the latest message reached the classifier prompt.
         sent_prompt = mock_completion.call_args.kwargs["messages"][0]["content"]
         assert "Koo Thai" not in sent_prompt
         assert "thai red curry" not in sent_prompt
         mock_run_tool.assert_not_called()
+        assert rejected is True
         assert "error" in result
 
     def test_classifier_failure_fails_closed(self):
@@ -358,16 +366,23 @@ class TestGuardedTargetLanguage:
         messages = [{"role": "user", "content": "I am traveling to Thailand"}]
         with patch.object(app_module.litellm, "completion", side_effect=RuntimeError("down")), \
              patch.object(app_module, "run_tool") as mock_run_tool:
-            result = json.loads(app_module._guarded_run_tool(
+            result, rejected = app_module._guarded_run_tool(
                 "generate_allergen_disclaimer", {"allergies": ["shellfish"], "target_language": "Thai"}, messages,
-            ))
+            )
+            result = json.loads(result)
         mock_run_tool.assert_not_called()
+        assert rejected is True
         assert "error" in result
 
     def test_end_to_end_via_chat_never_shows_an_unfounded_card(self, client):
         """Full /chat flow: the model guesses Spanish with no basis, the
         classifier says NO, the guard intercepts before the real (mocked)
-        tool runs, and the harness loops to let the model ask instead."""
+        tool runs, and the harness loops to let the model ask instead. The
+        rejected attempt is fed back to the model internally (so it can
+        self-correct) but must NOT appear in the user-facing tool_calls --
+        it's the agent catching its own mistake, not a real tool call or a
+        genuine error, and showing it as an "Error" card would read as
+        something broke rather than a safety check working correctly."""
         bad_call = make_tool_call("c1", "generate_allergen_disclaimer", {
             "allergies": ["shellfish"], "target_language": "Spanish",
         })
@@ -385,8 +400,7 @@ class TestGuardedTargetLanguage:
         mock_run_tool.assert_not_called()
         body = res.json()
         assert body["response"] == "Where are you traveling to?"
-        rejected = json.loads(body["tool_calls"][0]["result"])
-        assert "error" in rejected
+        assert body["tool_calls"] == []
 
 
 # ============================================================================
@@ -412,10 +426,12 @@ class TestGuardedAllergenicIngredient:
         ]
         with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("NO")), \
              patch.object(app_module, "run_tool") as mock_run_tool:
-            result = json.loads(app_module._guarded_run_tool(
+            result, rejected = app_module._guarded_run_tool(
                 "find_ingredient_substitute", {"allergenic_ingredient": "peanut butter"}, messages,
-            ))
+            )
+            result = json.loads(result)
         mock_run_tool.assert_not_called()
+        assert rejected is True
         assert "error" in result
         assert "peanut butter" in result["error"]
         assert "ask" in result["suggestion"].lower()
@@ -424,11 +440,12 @@ class TestGuardedAllergenicIngredient:
         messages = [{"role": "user", "content": "I'm allergic to peanut butter, need a substitute for cookies"}]
         with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("YES")), \
              patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
-            result = app_module._guarded_run_tool(
+            result, rejected = app_module._guarded_run_tool(
                 "find_ingredient_substitute", {"allergenic_ingredient": "peanut butter"}, messages,
             )
         mock_run_tool.assert_called_once()
         assert result == '{"ok": true}'
+        assert rejected is False
 
     def test_allergy_stated_several_turns_earlier_is_still_grounded(self):
         """Unlike target_language, this checks the WHOLE conversation --
@@ -440,10 +457,11 @@ class TestGuardedAllergenicIngredient:
         ]
         with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("YES")) as mock_completion, \
              patch.object(app_module, "run_tool", return_value='{"ok": true}') as mock_run_tool:
-            app_module._guarded_run_tool(
+            _, rejected = app_module._guarded_run_tool(
                 "find_ingredient_substitute", {"allergenic_ingredient": "peanut butter"}, messages,
             )
         mock_run_tool.assert_called_once()
+        assert rejected is False
         # Confirms the classifier prompt included the full conversation, not
         # just the latest message (which only mentions the dish).
         sent_prompt = mock_completion.call_args.kwargs["messages"][0]["content"]
@@ -456,10 +474,12 @@ class TestGuardedAllergenicIngredient:
         messages = [{"role": "user", "content": "I want to make pad thai"}]
         with patch.object(app_module.litellm, "completion", return_value=make_classifier_response("NO")), \
              patch.object(app_module, "run_tool") as mock_run_tool:
-            result = json.loads(app_module._guarded_run_tool(
+            result, rejected = app_module._guarded_run_tool(
                 "find_ingredient_substitute", {"allergenic_ingredient": "peanuts"}, messages,
-            ))
+            )
+            result = json.loads(result)
         mock_run_tool.assert_not_called()
+        assert rejected is True
         assert "error" in result
 
 
