@@ -338,7 +338,23 @@
             .status-tag.not-listed { background: var(--paper); color: var(--ink); }
             .status-tag.ask { background: var(--paper); color: var(--muted); border: 1px dashed var(--muted); }
             .status-tag.error { background: var(--paper); color: var(--contains); border: 1px dashed var(--contains); }
+            .status-tag.self-correction { background: var(--paper); color: var(--muted); border: 1px dashed var(--muted); }
 
+            .args-grid {
+                display: grid;
+                grid-template-columns: auto 1fr;
+                gap: 0.15rem 0.6rem;
+                margin-bottom: 0.6rem;
+            }
+            .args-key {
+                font-size: 0.74rem;
+                color: var(--muted);
+            }
+            .args-val {
+                font-size: 0.74rem;
+                color: var(--ink);
+                word-break: break-word;
+            }
             .tool-body .field-value { margin-bottom: 0.5rem; }
             .tool-body .field-value:last-child { margin-bottom: 0; }
             .field-label {
@@ -516,11 +532,26 @@
             };
 
             function statusTag(result) {
+                if (result.self_correction) return '<span class="status-tag self-correction">Double-checking</span>';
                 if (result.error) return '<span class="status-tag error">Error</span>';
                 if (result.status === "likely_contains") return '<span class="status-tag contains">Contains</span>';
                 if (result.status === "not_found_in_ingredients") return '<span class="status-tag not-listed">Not listed</span>';
                 if (result.status === "ask_restaurant") return '<span class="status-tag ask">Ask staff</span>';
                 return "";
+            }
+
+            function renderArgs(args) {
+                const entries = Object.entries(args || {}).filter(([, v]) =>
+                    v !== "" && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0)
+                );
+                if (!entries.length) return "";
+                let html = '<div class="field-label">Arguments</div><div class="args-grid">';
+                for (const [k, v] of entries) {
+                    const val = Array.isArray(v) ? v.join(", ") : String(v);
+                    html += '<span class="args-key">' + escapeHtml(k) + '</span><span class="args-val">' + escapeHtml(val) + "</span>";
+                }
+                html += "</div>";
+                return html;
             }
 
             function renderToolCard(call) {
@@ -550,10 +581,16 @@
                 const body = document.createElement("div");
                 body.className = "tool-body";
 
+                body.innerHTML = renderArgs(call.args);
+
                 if (!result) {
-                    body.innerHTML = '<div class="field-value">' + escapeHtml(call.result) + "</div>";
+                    body.innerHTML += '<div class="field-value">' + escapeHtml(call.result) + "</div>";
+                } else if (result.self_correction) {
+                    body.innerHTML +=
+                        '<div class="field-value">' + escapeHtml(result.error) + "</div>" +
+                        '<div class="suggestion-line">The agent caught this before answering and asked for the real detail instead.</div>';
                 } else if (result.error) {
-                    body.innerHTML =
+                    body.innerHTML +=
                         '<div class="field-value">' + escapeHtml(result.error) + "</div>" +
                         (result.suggestion ? '<div class="suggestion-line">' + escapeHtml(result.suggestion) + "</div>" : "");
                 } else {

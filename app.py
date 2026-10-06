@@ -217,27 +217,29 @@ def _guarded_run_tool(name: str, args: dict, messages: list[dict]) -> tuple[str,
     system prompt's own memory rules -- it just still has to have actually
     been stated somewhere, not inferred from a dish name alone.
 
-    Returns (result, was_rejected_by_guard). The second value lets the
-    caller feed the rejection back to the model (so it still self-corrects
-    in the same turn) without surfacing it in the user-facing tool_calls
-    list -- a rejected guess is the agent catching its own mistake before
-    it ever reaches the user, not a real tool call or a genuine failure
-    like a network error, and showing it as an "Error" card reads as
-    something broke rather than a safety check working as intended.
+    Returns (result, was_rejected_by_guard). The second value still lets the
+    caller feed the rejection back to the model (so it self-corrects in the
+    same turn), but every call -- rejected or not -- is now recorded in
+    tool_calls: the assignment spec requires "the name, args and result of
+    every call," so a guard rejection has to be visible too. The result JSON
+    carries "self_correction": True so the frontend can render it as the
+    agent catching its own guess rather than a generic failure.
     """
     if name == "generate_allergen_disclaimer":
         lang = (args.get("target_language") or "").strip()
         if lang and not _language_grounded_in_message(lang, _latest_user_message(messages)):
             return json.dumps({
                 "error": f"target_language '{lang}' was not stated in the user's current message.",
-                "suggestion": "Ask the user directly which language or destination they need -- do not call this tool again with a guessed value."
+                "suggestion": "Ask the user directly which language or destination they need -- do not call this tool again with a guessed value.",
+                "self_correction": True
             }), True
     elif name == "find_ingredient_substitute":
         ingredient = (args.get("allergenic_ingredient") or "").strip()
         if ingredient and not _ingredient_grounded_in_conversation(ingredient, _all_user_text(messages)):
             return json.dumps({
                 "error": f"'{ingredient}' was not stated by the user as an allergy or something to avoid.",
-                "suggestion": "Ask the user directly what ingredient or allergen they need to avoid -- do not call this tool again with a guessed value."
+                "suggestion": "Ask the user directly what ingredient or allergen they need to avoid -- do not call this tool again with a guessed value.",
+                "self_correction": True
             }), True
     return run_tool(name, args), False
 
@@ -277,17 +279,16 @@ def run_agent(messages: list[dict]) -> tuple[str, list[dict]]:
             # plain-text page), breaking the frontend's res.json() parse.
             return reply.content or "", tool_calls
 
-        # The harness, not the model, runs each tool and appends the result
+        # The harness, not the model, runs each tool and appends the result.
+        # Every call -- including guard rejections -- is recorded here: the
+        # assignment requires tool_calls to show "the name, args and result
+        # of every call." A guard rejection's result JSON is tagged
+        # self_correction=True so the frontend can tell it apart from a
+        # genuine tool failure (network error, bad API response, etc.).
         for call in reply.tool_calls:
             args = json.loads(call.function.arguments)
-            result, rejected_by_guard = _guarded_run_tool(call.function.name, args, messages)
-            # A guard rejection is the model's own guess caught before it ever
-            # reached the user -- fed back into messages below so the model
-            # can self-correct in the same turn, but left out of tool_calls so
-            # it never shows up as a user-facing "Error" card.
-            if not rejected_by_guard:
-                tool_calls += [{"name": call.function.name, "args": args, "result": result}]
-
+            result, _ = _guarded_run_tool(call.function.name, args, messages)
+            tool_calls += [{"name": call.function.name, "args": args, "result": result}]
             messages += [{"role": "tool", "tool_call_id": call.id, "content": result}]
 
     return "Sorry, I hit my tool-call limit before finishing.", tool_calls

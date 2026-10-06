@@ -374,15 +374,14 @@ class TestGuardedTargetLanguage:
         assert rejected is True
         assert "error" in result
 
-    def test_end_to_end_via_chat_never_shows_an_unfounded_card(self, client):
+    def test_end_to_end_via_chat_still_records_a_rejected_attempt(self, client):
         """Full /chat flow: the model guesses Spanish with no basis, the
         classifier says NO, the guard intercepts before the real (mocked)
         tool runs, and the harness loops to let the model ask instead. The
-        rejected attempt is fed back to the model internally (so it can
-        self-correct) but must NOT appear in the user-facing tool_calls --
-        it's the agent catching its own mistake, not a real tool call or a
-        genuine error, and showing it as an "Error" card would read as
-        something broke rather than a safety check working correctly."""
+        assignment spec requires tool_calls to show "the name, args and
+        result of every call" -- so the rejected attempt must still appear,
+        tagged self_correction=True so the frontend can render it as the
+        agent catching its own guess rather than a generic tool failure."""
         bad_call = make_tool_call("c1", "generate_allergen_disclaimer", {
             "allergies": ["shellfish"], "target_language": "Spanish",
         })
@@ -400,7 +399,13 @@ class TestGuardedTargetLanguage:
         mock_run_tool.assert_not_called()
         body = res.json()
         assert body["response"] == "Where are you traveling to?"
-        assert body["tool_calls"] == []
+        assert len(body["tool_calls"]) == 1
+        recorded = body["tool_calls"][0]
+        assert recorded["name"] == "generate_allergen_disclaimer"
+        assert recorded["args"]["target_language"] == "Spanish"
+        result = json.loads(recorded["result"])
+        assert result["self_correction"] is True
+        assert "Spanish" in result["error"]
 
 
 # ============================================================================
