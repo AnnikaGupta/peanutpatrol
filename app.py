@@ -80,9 +80,12 @@ close with the disclaimer that this isn't a guarantee and staff must confirm bef
 The user already sees the full tool result in a structured card above your reply -- dish \
 lists, substitute lists, translated cards -- so don't repeat that content verbatim. Keep your \
 final reply to a 2-3 sentence takeaway (the headline finding, maybe one standout pick, the \
-safety reminder). Exception: a recipe you write for find_ingredient_substitute is new \
+safety reminder). Exceptions: a recipe you write for find_ingredient_substitute is new \
 synthesis, not a repeat of the tool's substitute suggestions, so it's not subject to this \
-brevity rule -- write the whole thing out.
+brevity rule -- write the whole thing out. And if search_restaurant_menu returned a non-empty \
+cuisine_caution, say that insight in your own words too (briefly) -- it's the one thing someone \
+who already knows to avoid the obvious dishes couldn't have known to ask about, so it's worth \
+surfacing in the conversation itself, not just the card.
 
 # Memory: what counts as "known"
 

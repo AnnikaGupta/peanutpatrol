@@ -340,6 +340,35 @@
             .status-tag.error { background: var(--paper); color: var(--contains); border: 1px dashed var(--contains); }
             .status-tag.self-correction { background: var(--paper); color: var(--muted); border: 1px dashed var(--muted); }
 
+            .insight-callout {
+                display: flex;
+                gap: 0.55rem;
+                align-items: flex-start;
+                background: rgba(var(--shell-rgb), 0.12);
+                border-left: 3px solid var(--shell);
+                border-radius: 0 6px 6px 0;
+                padding: 0.6rem 0.75rem;
+                margin-bottom: 0.65rem;
+            }
+            .insight-callout i {
+                color: var(--shell);
+                font-size: 0.95rem;
+                margin-top: 0.15rem;
+            }
+            .insight-callout .insight-text {
+                font-size: 0.86rem;
+                line-height: 1.45;
+            }
+            .insight-callout .insight-eyebrow {
+                display: block;
+                font-family: "Manrope", sans-serif;
+                font-weight: 700;
+                font-size: 0.64rem;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                color: var(--muted);
+                margin-bottom: 0.15rem;
+            }
             .args-grid {
                 display: grid;
                 grid-template-columns: auto 1fr;
@@ -554,6 +583,12 @@
                 return html;
             }
 
+            function renderInsight(cuisineCaution) {
+                return '<div class="insight-callout"><i class="fa-solid fa-lightbulb"></i>' +
+                    '<div class="insight-text"><span class="insight-eyebrow">Worth knowing</span>' +
+                    marked.parseInline(cuisineCaution) + "</div></div>";
+            }
+
             function renderToolCard(call) {
                 const toolName = TOOL_NAMES[call.name] || call.name;
                 let result;
@@ -581,7 +616,12 @@
                 const body = document.createElement("div");
                 body.className = "tool-body";
 
-                body.innerHTML = renderArgs(call.args);
+                // The cuisine-caution insight (where an allergen commonly hides in a
+                // cuisine, e.g. fish sauce in Thai cooking) is the one piece of
+                // information someone who already knows to avoid the obvious dishes
+                // couldn't have gotten elsewhere -- it leads the card, above even the
+                // args, instead of being buried after the headline and dish lists.
+                body.innerHTML = (result && result.cuisine_caution ? renderInsight(result.cuisine_caution) : "") + renderArgs(call.args);
 
                 if (!result) {
                     body.innerHTML += '<div class="field-value">' + escapeHtml(call.result) + "</div>";
@@ -602,15 +642,6 @@
                         let html = '<div class="field-label">Multiple locations found -- which city?</div><ul>';
                         for (const loc of result.location_options) html += "<li>" + escapeHtml(loc) + "</li>";
                         html += "</ul>";
-                        body.innerHTML += html;
-                    }
-                    // Cuisine-level caution (hidden sources like fish sauce or shrimp paste)
-                    // comes before specific dish lists -- it's the non-obvious, genuinely
-                    // useful information for someone who already knows to avoid a dish whose
-                    // name says the allergen.
-                    if (result.cuisine_caution) {
-                        let html = '<div class="field-label">Worth knowing about this cuisine</div>';
-                        html += '<div class="field-value">' + marked.parseInline(result.cuisine_caution) + "</div>";
                         body.innerHTML += html;
                     }
                     if (result.candidate_dishes && result.candidate_dishes.length) {
