@@ -11,6 +11,7 @@
             rel="stylesheet"
         />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
         <link
             rel="stylesheet"
             href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
@@ -368,9 +369,97 @@
                 color: var(--muted);
                 margin-top: 0.5rem;
             }
+
+            /* ---------- Downloadable travel card ---------- */
+            .download-card-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.4rem;
+                margin-top: 0.6rem;
+                font-family: "Manrope", sans-serif;
+                font-weight: 600;
+                font-size: 0.78rem;
+                padding: 0.45rem 0.8rem;
+                background: var(--paper);
+                border: 1px solid var(--ink);
+                border-radius: var(--radius);
+                color: var(--ink);
+                cursor: pointer;
+            }
+            .download-card-btn:hover { background: var(--ink); color: var(--paper); }
+            .download-card-btn:disabled { opacity: 0.5; cursor: default; }
+
+            /* Rendered off-screen, then rasterized by html2canvas -- never
+               actually visible to the viewer in place. */
+            #printable-card-container {
+                position: absolute;
+                left: -9999px;
+                top: 0;
+            }
+            .printable-card {
+                width: 480px;
+                padding: 2rem;
+                background: var(--paper);
+                border: 3px solid var(--ink);
+                font-family: "Manrope", sans-serif;
+                color: var(--ink);
+            }
+            .printable-card .pc-brand {
+                font-weight: 800;
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: var(--muted);
+                margin-bottom: 0.3rem;
+            }
+            .printable-card .pc-title {
+                font-weight: 800;
+                font-size: 1.3rem;
+                margin-bottom: 1rem;
+                border-bottom: 2px solid var(--ink);
+                padding-bottom: 0.75rem;
+            }
+            .printable-card .pc-language {
+                display: inline-block;
+                font-weight: 600;
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                padding: 0.2rem 0.6rem;
+                border: 1px solid var(--ink);
+                margin-bottom: 1rem;
+            }
+            .printable-card .pc-text {
+                font-size: 1.15rem;
+                line-height: 1.6;
+                font-weight: 600;
+                margin-bottom: 1.5rem;
+                padding: 1rem;
+                background: rgba(var(--shell-rgb), 0.08);
+                border-left: 3px solid var(--shell);
+            }
+            .printable-card .pc-allergies-label {
+                font-weight: 700;
+                font-size: 0.7rem;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                color: var(--muted);
+                margin-bottom: 0.3rem;
+            }
+            .printable-card .pc-allergies {
+                font-size: 0.9rem;
+                margin-bottom: 1.5rem;
+            }
+            .printable-card .pc-footer {
+                font-size: 0.7rem;
+                color: var(--muted);
+                border-top: 1px solid var(--line);
+                padding-top: 0.75rem;
+            }
         </style>
     </head>
     <body>
+        <div id="printable-card-container"></div>
         <div id="app">
             <header>
                 <img src="/peanutpatrol_img.png" alt="" />
@@ -539,10 +628,60 @@
                     if (result.warning) {
                         body.innerHTML += '<div class="warning-compact">' + escapeHtml(result.warning) + "</div>";
                     }
+                    if (result.translated_card) {
+                        const downloadBtn = document.createElement("button");
+                        downloadBtn.className = "download-card-btn";
+                        downloadBtn.innerHTML = '<i class="fa-solid fa-download"></i>Download card';
+                        downloadBtn.addEventListener("click", () => downloadAllergyCard(result, downloadBtn));
+                        body.appendChild(downloadBtn);
+                    }
                 }
 
                 card.appendChild(body);
                 return card;
+            }
+
+            async function downloadAllergyCard(result, triggerBtn) {
+                triggerBtn.disabled = true;
+                const originalLabel = triggerBtn.innerHTML;
+                triggerBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>Preparing...';
+
+                try {
+                    const container = document.getElementById("printable-card-container");
+                    const allergiesText = (result.allergies || []).join(", ");
+                    container.innerHTML =
+                        '<div class="printable-card">' +
+                        '<div class="pc-brand">Peanut Patrol</div>' +
+                        '<div class="pc-title">Allergy Card</div>' +
+                        '<div class="pc-language">' + escapeHtml(result.language || "") + "</div>" +
+                        '<div class="pc-text">' + escapeHtml(result.translated_card || "") + "</div>" +
+                        '<div class="pc-allergies-label">Allergies (English)</div>' +
+                        '<div class="pc-allergies">' + escapeHtml(allergiesText) + "</div>" +
+                        '<div class="pc-footer">Always show this card to restaurant staff and confirm before ordering. Ingredient data is not a guarantee against cross-contact.</div>' +
+                        "</div>";
+
+                    const cardEl = container.querySelector(".printable-card");
+                    const canvas = await html2canvas(cardEl, { backgroundColor: "#fdfcf9", scale: 2 });
+                    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    const langSlug = (result.language || "card").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+                    a.href = url;
+                    a.download = "peanut-patrol-allergy-card-" + langSlug + ".png";
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                    container.innerHTML = "";
+                } catch (e) {
+                    triggerBtn.innerHTML = "Download failed";
+                    setTimeout(() => { triggerBtn.innerHTML = originalLabel; }, 2000);
+                    triggerBtn.disabled = false;
+                    return;
+                }
+
+                triggerBtn.innerHTML = originalLabel;
+                triggerBtn.disabled = false;
             }
 
             async function send(overrideText) {
