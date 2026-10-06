@@ -519,7 +519,9 @@
                         html += "</ul>";
                         body.innerHTML += html;
                     }
-                    if (result.substitutes && result.substitutes.length) {
+                    if (result.likely_not_in_dish) {
+                        body.innerHTML += '<div class="field-value">' + marked.parseInline(result.note || "") + "</div>";
+                    } else if (result.substitutes && result.substitutes.length) {
                         let html = '<div class="field-label">Substitutes</div><ul>';
                         for (const s of result.substitutes) {
                             html += "<li>" + escapeHtml(typeof s === "string" ? s : JSON.stringify(s)) + "</li>";

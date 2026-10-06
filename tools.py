@@ -203,6 +203,35 @@ def search_restaurant_menu(restaurant_name: str = "", dish_name: str = "", aller
 # Tool 2: find_ingredient_substitute
 # ============================================================================
 
+def _ingredient_typically_in_dish(ingredient: str, recipe_context: str) -> bool | None:
+    """Narrow, single-purpose classifier: is `ingredient` a standard part of
+    `recipe_context`, or not actually a normal component of that dish at
+    all? Stable culinary knowledge, so no web-search grounding needed.
+    Returns None (treated as "unknown, don't block") if the classifier call
+    itself fails.
+    """
+    prompt = (
+        f"Is '{ingredient}' a standard, typical ingredient in '{recipe_context}'? "
+        f"Answer with ONLY the single word YES or NO."
+    )
+    try:
+        response = litellm.completion(
+            model="vertex_ai/gemini-3.5-flash-lite",
+            vertex_location="global",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            timeout=10,
+        )
+        answer = (response.choices[0].message.content or "").strip().upper()
+        if answer.startswith("YES"):
+            return True
+        if answer.startswith("NO"):
+            return False
+        return None
+    except Exception:
+        return None
+
+
 def find_ingredient_substitute(allergenic_ingredient: str = "", recipe_context: str = "") -> str:
     """Find safe substitutes for an allergenic ingredient in a recipe.
 
@@ -246,13 +275,30 @@ def find_ingredient_substitute(allergenic_ingredient: str = "", recipe_context: 
         # API had no data for this ingredient (common for allergen-specific terms
         # like "shellfish" or "eggs") -- fall back to curated allergy substitutes.
         fallback = get_common_substitutes(allergenic_ingredient)
-        return json.dumps({
+        result = {
             "ingredient": allergenic_ingredient,
             "recipe_type": recipe_context or "general",
             "substitutes": fallback,
             "source": "curated_fallback",
             "note": "Spoonacular had no data for this ingredient; using allergy-safe substitutes instead"
-        })
+        }
+        # Spoonacular is a real substitution database and came back empty --
+        # a genuine signal something may be off, not just a data gap. Caught
+        # live: "peanuts" + "thai red curry" produced this exact empty
+        # result, and the model still wrote a full recipe "substituting"
+        # peanuts anyway, even though peanuts aren't a standard ingredient
+        # in red curry (that's pad thai or satay sauce). Rather than ask the
+        # orchestrating model to remember to sanity-check this on its own --
+        # the same unreliable pattern behind several other bugs this
+        # session -- the tool verifies it directly and hands back an
+        # explicit signal.
+        if recipe_context and _ingredient_typically_in_dish(allergenic_ingredient, recipe_context) is False:
+            result["likely_not_in_dish"] = True
+            result["note"] = (
+                f"'{allergenic_ingredient}' does not appear to be a standard ingredient in "
+                f"'{recipe_context}' -- there may be nothing to substitute at all."
+            )
+        return json.dumps(result)
 
     except requests.RequestException as e:
         return json.dumps({

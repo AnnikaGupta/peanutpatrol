@@ -240,6 +240,80 @@ class TestFindIngredientSubstitute:
             result = json.loads(tools.find_ingredient_substitute("butter"))
         assert "error" in result
 
+    def test_likely_not_in_dish_flagged_when_classifier_says_no(self):
+        """Regression test for a live bug: user allergic to peanuts, asked
+        about 'thai red curry' (peanuts aren't actually a standard red curry
+        ingredient -- that's pad thai or satay sauce) -- Spoonacular
+        correctly has no substitution data for this, and the tool should now
+        say so explicitly instead of silently falling back to generic
+        curated substitutes with no caveat."""
+        fake_resp = MagicMock(status_code=200)
+        fake_resp.json.return_value = {"status": "failure"}
+        with patch.object(tools.requests, "get", return_value=fake_resp), \
+             patch.object(tools.litellm, "completion", return_value=make_grounded_response("NO")):
+            result = json.loads(tools.find_ingredient_substitute("peanuts", "thai red curry"))
+        assert result["likely_not_in_dish"] is True
+        assert "peanuts" in result["note"]
+        assert "thai red curry" in result["note"]
+
+    def test_not_flagged_when_classifier_says_yes(self):
+        fake_resp = MagicMock(status_code=200)
+        fake_resp.json.return_value = {"status": "failure"}
+        with patch.object(tools.requests, "get", return_value=fake_resp), \
+             patch.object(tools.litellm, "completion", return_value=make_grounded_response("YES")):
+            result = json.loads(tools.find_ingredient_substitute("shellfish", "tom yum soup"))
+        assert "likely_not_in_dish" not in result
+
+    def test_no_recipe_context_skips_the_check_entirely(self):
+        """No dish named -- nothing to verify against, and no extra call
+        should be made."""
+        fake_resp = MagicMock(status_code=200)
+        fake_resp.json.return_value = {"status": "failure"}
+        with patch.object(tools.requests, "get", return_value=fake_resp), \
+             patch.object(tools.litellm, "completion") as mock_completion:
+            result = json.loads(tools.find_ingredient_substitute("shellfish"))
+        mock_completion.assert_not_called()
+        assert "likely_not_in_dish" not in result
+
+    def test_classifier_failure_does_not_block_the_fallback(self):
+        """If the verification call itself errors, don't flag anything --
+        ambiguous is not the same as confidently wrong."""
+        fake_resp = MagicMock(status_code=200)
+        fake_resp.json.return_value = {"status": "failure"}
+        with patch.object(tools.requests, "get", return_value=fake_resp), \
+             patch.object(tools.litellm, "completion", side_effect=RuntimeError("down")):
+            result = json.loads(tools.find_ingredient_substitute("eggs", "pancakes"))
+        assert "likely_not_in_dish" not in result
+        assert result["source"] == "curated_fallback"
+
+    def test_spoonacular_success_path_never_triggers_the_check(self):
+        """The verification only applies to the curated-fallback path --
+        when Spoonacular has real data, there's no reason to second-guess it."""
+        fake_resp = MagicMock(status_code=200)
+        fake_resp.json.return_value = {"status": "success", "substitutes": ["1 cup = 1 cup tahini"]}
+        with patch.object(tools.requests, "get", return_value=fake_resp), \
+             patch.object(tools.litellm, "completion") as mock_completion:
+            tools.find_ingredient_substitute("peanut butter", "cookies")
+        mock_completion.assert_not_called()
+
+
+class TestIngredientTypicallyInDish:
+    def test_yes_response(self):
+        with patch.object(tools.litellm, "completion", return_value=make_grounded_response("YES")):
+            assert tools._ingredient_typically_in_dish("shrimp", "pad thai") is True
+
+    def test_no_response(self):
+        with patch.object(tools.litellm, "completion", return_value=make_grounded_response("NO")):
+            assert tools._ingredient_typically_in_dish("peanuts", "thai red curry") is False
+
+    def test_ambiguous_response_returns_none(self):
+        with patch.object(tools.litellm, "completion", return_value=make_grounded_response("Maybe?")):
+            assert tools._ingredient_typically_in_dish("x", "y") is None
+
+    def test_exception_returns_none(self):
+        with patch.object(tools.litellm, "completion", side_effect=RuntimeError("down")):
+            assert tools._ingredient_typically_in_dish("x", "y") is None
+
 
 class TestGetCommonSubstitutes:
     def test_exact_key_match(self):
