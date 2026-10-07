@@ -18,6 +18,13 @@ allergy card to bring with you to your destination.
 
 ## Sample Queries
 
-1. I'm allergic to coconut, and I want to order from Koo Thai in the Upper West Side.
-2. I'm allergic to shellfish and I want to make crab rangoons.
-3. I'm traveling to China and I'm allergic to peanuts.
+1. I'm allergic to shellfish, and I want to order drunken noodles from Koo Thai in the Upper
+   West Side. *Expected: confirms shellfish isn't a listed ingredient, but flags that fish
+   sauce or oyster sauce commonly hide in Thai stir-fries even when the dish name doesn't say
+   so.*
+2. I'm allergic to shellfish and I want to make crab rangoons. *Expected: a couple of real
+   substitute options (e.g. hearts of palm) and a question asking which you'd like -- name one
+   and you'll get back a full recipe with quantities and steps.*
+3. I'm traveling to China and I'm allergic to peanuts. *Expected: a Mandarin-translated allergy
+   card, cuisine-specific notes on where peanuts commonly show up, and a downloadable PNG
+   version of the card.*
